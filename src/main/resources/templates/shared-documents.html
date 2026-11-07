@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyHub - Kho tài liệu chia sẻ</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- Custom Style -->
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+</head>
+<body>
+
+    <!-- Left Sidebar -->
+    <div th:replace="~{fragments/sidebar :: sidebar(activeTab='shared-docs')}"></div>
+
+    <!-- Main Content Container -->
+    <div class="main-content">
+        <!-- Top Header -->
+        <div th:replace="~{fragments/header :: header}"></div>
+
+        <!-- Notification Alerts -->
+        <div th:if="${successMessage}" class="alert alert-success alert-dismissible fade show rounded-3 shadow-sm mb-4" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>
+            <span th:text="${successMessage}"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        <div th:if="${errorMessage}" class="alert alert-danger alert-dismissible fade show rounded-3 shadow-sm mb-4" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <span th:text="${errorMessage}"></span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- Hero / Header of Shared Repository -->
+        <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <div class="stat-icon bg-primary-subtle text-primary" style="width: 40px; height: 40px; font-size: 1.25rem;">
+                            <i class="bi bi-share-fill"></i>
+                        </div>
+                        <h4 class="fw-bold mb-0 text-dark">Kho tài liệu chia sẻ cộng đồng</h4>
+                        <span class="badge bg-primary text-white rounded-pill px-3 py-1 small" th:text="${totalSharedCount} + ' tài liệu đã chia sẻ'">0 tài liệu</span>
+                    </div>
+                    <p class="text-secondary mb-0 small" style="line-height: 1.6;">
+                        Nơi sinh viên các ngành chia sẻ học liệu hữu ích. Bạn có thể xem, tải về hoặc <strong>kéo trực tiếp về kho riêng</strong> của mình để ôn tập thuận tiện!
+                    </p>
+                </div>
+
+                <!-- Primary Action Button: Chia sẻ tài liệu từ kho riêng -->
+                <button type="button" class="btn btn-primary rounded-pill px-4 py-2 fw-semibold shadow-sm d-flex align-items-center gap-2"
+                        data-bs-toggle="modal" data-bs-target="#shareModal">
+                    <i class="bi bi-cloud-arrow-up-fill fs-5"></i>
+                    <span>Chia sẻ tài liệu từ kho riêng</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Filter & Search Controls -->
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+            <div class="card-body p-3">
+                <!-- Category Tabs -->
+                <ul class="nav nav-pills-custom mb-3">
+                    <li class="nav-item">
+                        <a th:href="@{/shared-documents(category='all', keyword=${currentKeyword}, subjectId=${currentSubjectId}, sortBy=${currentSortBy})}"
+                           class="nav-link"
+                           th:classappend="${currentCategory == null or currentCategory == 'all'} ? 'active' : ''">
+                            Tất cả tài liệu
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a th:href="@{/shared-documents(category='Giáo trình & Bài giảng', keyword=${currentKeyword}, subjectId=${currentSubjectId}, sortBy=${currentSortBy})}"
+                           class="nav-link"
+                           th:classappend="${currentCategory == 'Giáo trình & Bài giảng'} ? 'active' : ''">
+                            <i class="bi bi-journal-bookmark me-1"></i> Giáo trình & Bài giảng
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a th:href="@{/shared-documents(category='Đề thi & Đáp án', keyword=${currentKeyword}, subjectId=${currentSubjectId}, sortBy=${currentSortBy})}"
+                           class="nav-link"
+                           th:classappend="${currentCategory == 'Đề thi & Đáp án'} ? 'active' : ''">
+                            <i class="bi bi-patch-question me-1"></i> Đề thi & Đáp án
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a th:href="@{/shared-documents(category='Slide thuyết trình', keyword=${currentKeyword}, subjectId=${currentSubjectId}, sortBy=${currentSortBy})}"
+                           class="nav-link"
+                           th:classappend="${currentCategory == 'Slide thuyết trình'} ? 'active' : ''">
+                            <i class="bi bi-file-earmark-slides me-1"></i> Slide bài giảng
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a th:href="@{/shared-documents(category='Ghi chú & Khác', keyword=${currentKeyword}, subjectId=${currentSubjectId}, sortBy=${currentSortBy})}"
+                           class="nav-link"
+                           th:classappend="${currentCategory == 'Ghi chú & Khác'} ? 'active' : ''">
+                            <i class="bi bi-stickies me-1"></i> Ghi chú & Khác
+                        </a>
+                    </li>
+                </ul>
+
+                <!-- Subject Dropdown & Search Form -->
+                <form th:action="@{/shared-documents}" method="get">
+                    <input type="hidden" name="category" th:value="${currentCategory}">
+
+                    <div class="row g-2 align-items-center mb-2">
+                        <div class="col-md-5 col-sm-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-light text-muted border-end-0">
+                                    <i class="bi bi-filter"></i>
+                                </span>
+                                <select name="subjectId" class="form-select form-select-sm border-start-0" onchange="this.form.submit()">
+                                    <option value="" th:selected="${currentSubjectId == null}">-- Tất cả môn học --</option>
+                                    <option th:each="sub : ${subjects}"
+                                            th:value="${sub.id}"
+                                            th:text="${sub.code + ' - ' + sub.name}"
+                                            th:selected="${currentSubjectId == sub.id}">
+                                    </option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4 col-sm-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text bg-light text-muted border-end-0">
+                                    <i class="bi bi-sort-down"></i>
+                                </span>
+                                <select name="sortBy" class="form-select form-select-sm border-start-0" onchange="this.form.submit()">
+                                    <option value="newest" th:selected="${currentSortBy == 'newest'}">Mới chia sẻ gần nhất</option>
+                                    <option value="downloads" th:selected="${currentSortBy == 'downloads'}">Lượt tải / kéo nhiều nhất</option>
+                                    <option value="views" th:selected="${currentSortBy == 'views'}">Xem nhiều nhất</option>
+                                    <option value="title" th:selected="${currentSortBy == 'title'}">Tên A-Z</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3 col-sm-12 text-md-end">
+                            <a th:href="@{/shared-documents}" class="btn btn-sm btn-light border text-secondary w-100">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i> Đặt lại bộ lọc
+                            </a>
+                        </div>
+                    </div>
+
+                    <!-- Search bar -->
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <div class="input-group">
+                                <span class="input-group-text bg-white border-end-0 text-muted">
+                                    <i class="bi bi-search"></i>
+                                </span>
+                                <input type="text" name="keyword" class="form-control border-start-0 border-end-0"
+                                       placeholder="Tìm trong kho chia sẻ theo tên tài liệu, người chia sẻ, ghi chú, môn học..."
+                                       th:value="${currentKeyword}">
+                                <button type="submit" class="btn btn-primary px-3">
+                                    <i class="bi bi-search me-1"></i> Tìm kiếm
+                                </button>
+                                <a th:if="${currentKeyword != null and !currentKeyword.isEmpty()}"
+                                   th:href="@{/shared-documents(category=${currentCategory}, subjectId=${currentSubjectId}, sortBy=${currentSortBy})}"
+                                   class="btn btn-outline-secondary">
+                                    <i class="bi bi-x-lg me-1"></i> Xóa tìm kiếm
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Shared Documents Table Section -->
+        <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
+            <div class="card-header bg-white py-3 px-3 d-flex justify-content-between align-items-center border-bottom flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-collection text-primary fs-5"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Danh sách tài liệu đang chia sẻ</h6>
+                    <span class="badge bg-secondary-subtle text-secondary rounded-pill" th:text="${sharedDocs.size()} + ' tài liệu'"></span>
+                </div>
+                <small class="text-muted"><i class="bi bi-info-circle me-1"></i>Bấm nút "Kéo về kho riêng" để lưu bản sao vào kho cá nhân của bạn</small>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table custom-table mb-0 align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width: 80px;" class="text-center">Định dạng</th>
+                            <th>Tên tài liệu &amp; Người chia sẻ</th>
+                            <th style="width: 140px;" class="text-center">Môn học</th>
+                            <th style="width: 180px;">Phân loại</th>
+                            <th style="width: 150px;" class="text-center">Ngày chia sẻ</th>
+                            <th style="width: 220px;" class="text-end">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr th:if="${#lists.isEmpty(sharedDocs)}">
+                            <td colspan="6" class="text-center py-5 text-muted">
+                                <i class="bi bi-inbox fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                                <span class="d-block fw-semibold text-dark mb-1">Chưa có tài liệu nào phù hợp với bộ lọc hiện tại.</span>
+                                <p class="small text-muted mb-3">Hãy là người đầu tiên chia sẻ tài liệu hữu ích cho cộng đồng sinh viên StudyHub!</p>
+                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-3" data-bs-toggle="modal" data-bs-target="#shareModal">
+                                    <i class="bi bi-cloud-arrow-up-fill me-1"></i> Chia sẻ tài liệu ngay
+                                </button>
+                            </td>
+                        </tr>
+
+                        <tr th:each="doc : ${sharedDocs}">
+                            <!-- File Format Badge -->
+                            <td class="text-center">
+                                <span class="badge" th:classappend="${doc.badgeClass}" th:text="${doc.fileExtension}">PDF</span>
+                            </td>
+
+                            <!-- Title & Sharer Info -->
+                            <td>
+                                <div class="d-flex align-items-center gap-2 mb-1">
+                                    <span class="fw-semibold text-dark text-break" th:text="${doc.title}">Tên tài liệu</span>
+                                    <span th:if="${doc.fileUrl != null and !doc.fileUrl.isEmpty()}"
+                                          class="badge bg-primary-subtle text-primary border"
+                                          title="Có liên kết trực tuyến">
+                                        <i class="bi bi-link-45deg"></i>
+                                    </span>
+                                </div>
+                                <div class="d-flex align-items-center gap-3 text-muted small flex-wrap">
+                                    <span class="text-primary fw-medium">
+                                        <i class="bi bi-person-fill me-1"></i>Chia sẻ bởi:
+                                        <strong th:text="${doc.sharedByName != null ? doc.sharedByName : 'Sinh viên'}">Tên sinh viên</strong>
+                                    </span>
+                                    <span th:if="${doc.sharedNote != null and !doc.sharedNote.isEmpty()}" class="text-secondary fst-italic">
+                                        <i class="bi bi-chat-left-quote me-1"></i>"<span th:text="${doc.sharedNote}"></span>"
+                                    </span>
+                                </div>
+                            </td>
+
+                            <!-- Subject Badge -->
+                            <td class="text-center">
+                                <span th:if="${doc.subject != null}"
+                                      class="badge bg-light text-dark border px-2 py-1 fw-medium"
+                                      th:title="${doc.subject.name}">
+                                    <i class="bi bi-book me-1 text-primary"></i>
+                                    <span th:text="${doc.subject.code}">MÃ</span>
+                                </span>
+                                <span th:unless="${doc.subject != null}" class="text-muted small">--</span>
+                            </td>
+
+                            <!-- Category -->
+                            <td>
+                                <span class="badge bg-light text-secondary border fw-normal" th:text="${doc.category}">Giáo trình</span>
+                            </td>
+
+                            <!-- Shared Date -->
+                            <td class="text-center text-muted small" th:text="${doc.formattedSharedDate}">
+                                07/11/2026
+                            </td>
+
+                            <!-- Actions -->
+                            <td class="text-end">
+                                <div class="d-flex align-items-center justify-content-end gap-2 flex-wrap">
+                                    <!-- Nút Kéo về kho riêng (Nếu chưa có trong kho riêng) -->
+                                    <th:block th:if="${currentUser != null and (doc.user == null or !doc.user.id.equals(currentUser.id)) and !myDocTitles.contains(doc.title)}">
+                                        <form th:action="@{/shared-documents/pull/{id}(id=${doc.id})}" method="post" class="d-inline">
+                                            <button type="submit" class="btn btn-sm btn-primary rounded-pill px-3 py-1 fw-semibold d-flex align-items-center gap-1 shadow-sm"
+                                                    title="Lưu bản sao về kho tài liệu cá nhân của bạn">
+                                                <i class="bi bi-cloud-download-fill"></i>
+                                                <span>Kéo về kho riêng</span>
+                                            </button>
+                                        </form>
+                                    </th:block>
+
+                                    <!-- Nếu tài liệu này ĐÃ CÓ trong kho riêng của người dùng -->
+                                    <th:block th:if="${currentUser != null and (doc.user == null or !doc.user.id.equals(currentUser.id)) and myDocTitles.contains(doc.title)}">
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle py-2 px-3 rounded-pill fw-medium">
+                                            <i class="bi bi-check2-circle me-1"></i>Đã có trong kho
+                                        </span>
+                                    </th:block>
+
+                                    <!-- Nếu tài liệu này DO CHÍNH NGƯỜI DÙNG HIỆN TẠI CHIA SẺ -->
+                                    <th:block th:if="${currentUser != null and doc.user != null and doc.user.id.equals(currentUser.id)}">
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle py-2 px-3 rounded-pill fw-medium">
+                                            <i class="bi bi-person-check me-1"></i>Bạn đã chia sẻ
+                                        </span>
+                                        <form th:action="@{/shared-documents/unshare/{id}(id=${doc.id})}" method="post" class="d-inline"
+                                              onsubmit="return confirm('Bạn có chắc muốn hủy chia sẻ tài liệu này khỏi kho chung?');">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill px-2 py-1" title="Hủy chia sẻ khỏi kho chung">
+                                                <i class="bi bi-x-circle me-1"></i>Hủy chia sẻ
+                                            </button>
+                                        </form>
+                                    </th:block>
+
+                                    <!-- Link xem trực tuyến (nếu có URL) -->
+                                    <a th:if="${doc.fileUrl != null and !doc.fileUrl.isEmpty()}"
+                                       th:href="${doc.fileUrl}" target="_blank"
+                                       class="btn btn-sm btn-light border text-primary" title="Mở liên kết trực tuyến">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+
+                                    <!-- Nút tải file về máy -->
+                                    <a th:href="@{/documents/download/{id}(id=${doc.id})}"
+                                       class="btn btn-sm btn-light border text-secondary" title="Tải file về máy">
+                                        <i class="bi bi-download"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================
+         MODAL CHIA SẺ TÀI LIỆU TỪ KHO RIÊNG LÊN KHO CHUNG
+         =================================================================== -->
+    <div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                <div class="modal-header border-bottom p-4 pb-3">
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark" id="shareModalLabel">
+                            <i class="bi bi-share text-primary me-2"></i>Chia sẻ tài liệu lên kho chung
+                        </h5>
+                        <p class="text-muted small mb-0">Chọn tài liệu từ kho riêng của bạn để chia sẻ cho các sinh viên khác</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <form th:action="@{/shared-documents/share}" method="post">
+                    <div class="modal-body p-4">
+                        <!-- Trường hợp 1: Người dùng chưa có tài liệu nào trong kho riêng -->
+                        <div th:if="${#lists.isEmpty(myDocs)}" class="text-center py-4 text-muted">
+                            <i class="bi bi-folder-x fs-1 text-secondary opacity-50 mb-2 d-block"></i>
+                            <h6 class="fw-bold text-dark mb-1">Kho riêng của bạn hiện chưa có tài liệu nào!</h6>
+                            <p class="small text-muted mb-3">Vui lòng vào trang Tổng quan để tải tài liệu lên kho riêng trước khi chia sẻ nhé.</p>
+                            <a th:href="@{/dashboard}" class="btn btn-primary rounded-pill px-4">
+                                <i class="bi bi-cloud-arrow-up-fill me-1"></i> Về kho riêng tải tài liệu lên
+                            </a>
+                        </div>
+
+                        <!-- Trường hợp 2: Người dùng có tài liệu trong kho riêng -->
+                        <div th:unless="${#lists.isEmpty(myDocs)}">
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold small">Chọn tài liệu từ kho riêng của bạn <span class="text-danger">*</span></label>
+                                <select name="documentId" class="form-select" required>
+                                    <option value="">-- Bấm để chọn tài liệu muốn chia sẻ --</option>
+                                    <option th:each="doc : ${myDocs}"
+                                            th:value="${doc.id}"
+                                            th:text="${doc.title + (doc.isShared ? ' [Đang chia sẻ]' : '') + (doc.subject != null ? ' (' + doc.subject.code + ')' : '')}">
+                                        Tên tài liệu
+                                    </option>
+                                </select>
+                                <div class="form-text" style="font-size: 0.75rem;">
+                                    Tài liệu sau khi chia sẻ sẽ hiển thị trên kho chung cho toàn bộ sinh viên.
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-semibold small">Lời nhắn / Ghi chú chia sẻ (tùy chọn)</label>
+                                <textarea name="note" class="form-control" rows="3"
+                                          placeholder="Ví dụ: Đề cương ôn thi giữa kỳ kèm đáp án chi tiết, chúc các bạn ôn tập tốt!"></textarea>
+                            </div>
+
+                            <div class="p-3 bg-light rounded-3 border small text-muted mb-2">
+                                <i class="bi bi-info-circle text-primary me-1"></i>
+                                <span>Sinh viên khác có thể tìm thấy tài liệu này và bấm <strong>"Kéo về kho riêng"</strong> để lưu một bản sao vào tài khoản của họ.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-footer border-top bg-light p-3" th:unless="${#lists.isEmpty(myDocs)}">
+                        <button type="button" class="btn btn-light border rounded-pill px-4" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-primary rounded-pill px-4 fw-semibold shadow-sm">
+                            <i class="bi bi-check2-circle me-1"></i> Xác nhận chia sẻ
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
+
