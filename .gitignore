@@ -42,3 +42,4 @@ Thumbs.db
 ### Uploads directory (keep folder structure) ###
 uploads/*
 !uploads/.gitkeep
+
