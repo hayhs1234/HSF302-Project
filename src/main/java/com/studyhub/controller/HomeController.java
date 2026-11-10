@@ -118,6 +118,14 @@ public class HomeController {
                 (!category.equals("all") ? "&category=" + category : "");
     }
 
+    @GetMapping("/login")
+    public String showLoginPage(HttpSession session) {
+        if (session != null && session.getAttribute("currentUser") != null) {
+            return "redirect:/dashboard";
+        }
+        return "redirect:/?loginRequired=true";
+    }
+
     @PostMapping("/login")
     public String login(
             @RequestParam(required = false) String email,
@@ -140,6 +148,14 @@ public class HomeController {
             redirectAttributes.addFlashAttribute("loginErrorMessage", "Email hoặc mật khẩu không chính xác! Vui lòng thử lại.");
             return "redirect:/?loginError=true";
         }
+    }
+
+    @GetMapping("/register")
+    public String showRegisterPage(HttpSession session) {
+        if (session != null && session.getAttribute("currentUser") != null) {
+            return "redirect:/dashboard";
+        }
+        return "redirect:/?registerRequired=true";
     }
 
     @PostMapping("/register")
