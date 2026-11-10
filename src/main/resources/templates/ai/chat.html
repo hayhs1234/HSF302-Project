@@ -1,0 +1,2305 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trợ lý AI - StudyHub</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- KaTeX CSS for Math Formulas -->
+    <link href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" rel="stylesheet">
+    <!-- Custom Style -->
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <style>
+        .chat-workspace {
+            background: #ffffff;
+            border-radius: 1.25rem;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+            display: flex;
+            height: calc(100vh - 175px);
+            min-height: 600px;
+            overflow: hidden;
+        }
+
+        /* Conversation Sidebar */
+        .conv-sidebar {
+            width: 270px;
+            border-right: 1px solid #e2e8f0;
+            background: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            transition: margin-left 0.25s ease;
+        }
+
+        .conv-sidebar.collapsed {
+            margin-left: -270px;
+        }
+
+        .conv-sidebar-header {
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            background: #ffffff;
+        }
+
+        .conv-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0.65rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .conv-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.55rem 0.75rem;
+            border-radius: 0.65rem;
+            cursor: pointer;
+            color: #334155;
+            font-size: 0.86rem;
+            transition: all 0.15s ease;
+            border: 1px solid transparent;
+        }
+
+        .conv-item:hover {
+            background: #eef2ff;
+            color: #1e293b;
+        }
+
+        .conv-item.active {
+            background: #eef2ff;
+            color: #4f46e5;
+            border-color: #c7d2fe;
+            font-weight: 600;
+        }
+
+        .conv-item-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            margin-right: 0.4rem;
+        }
+
+        .conv-item-actions {
+            display: none;
+            gap: 0.2rem;
+            flex-shrink: 0;
+        }
+
+        .conv-item:hover .conv-item-actions,
+        .conv-item.active .conv-item-actions {
+            display: inline-flex;
+        }
+
+        .conv-action-btn {
+            border: none;
+            background: transparent;
+            color: #64748b;
+            padding: 0.1rem 0.3rem;
+            border-radius: 0.35rem;
+            font-size: 0.78rem;
+            line-height: 1;
+        }
+
+        .conv-action-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        .conv-action-btn.delete:hover {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        /* Main Chat Area */
+        .chat-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            background: #ffffff;
+        }
+
+        .chat-header {
+            padding: 0.85rem 1.25rem;
+            border-bottom: 1px solid #f1f5f9;
+            background: #fafafa;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            background: #f8fafc;
+        }
+
+        .message-row {
+            display: flex;
+            gap: 0.75rem;
+            max-width: 85%;
+        }
+
+        .message-row.user {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+
+        .message-row.ai {
+            align-self: flex-start;
+        }
+
+        .message-bubble {
+            padding: 0.95rem 1.2rem;
+            border-radius: 1.1rem;
+            font-size: 0.94rem;
+            line-height: 1.65;
+            word-break: break-word;
+            position: relative;
+        }
+
+        .message-row.user .message-bubble {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: #ffffff;
+            border-bottom-right-radius: 0.25rem;
+            white-space: pre-wrap;
+        }
+
+        .message-row.ai .message-bubble {
+            background: #ffffff;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+            border-bottom-left-radius: 0.25rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+        }
+
+        .avatar-bubble {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+            flex-shrink: 0;
+            font-weight: 600;
+        }
+
+        .avatar-ai {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            color: white;
+        }
+
+        .avatar-user {
+            background: #3b82f6;
+            color: white;
+        }
+
+        /* Markdown Content Styling inside AI Bubble */
+        .ai-text-content p {
+            margin-bottom: 0.65rem;
+        }
+        .ai-text-content p:last-child {
+            margin-bottom: 0;
+        }
+        .ai-text-content h1, .ai-text-content h2, .ai-text-content h3, .ai-text-content h4 {
+            font-weight: 700;
+            color: #0f172a;
+            margin-top: 0.85rem;
+            margin-bottom: 0.45rem;
+        }
+        .ai-text-content h1 { font-size: 1.2rem; }
+        .ai-text-content h2 { font-size: 1.1rem; }
+        .ai-text-content h3 { font-size: 1.02rem; }
+        .ai-text-content h4 { font-size: 0.96rem; }
+        .ai-text-content ul, .ai-text-content ol {
+            padding-left: 1.35rem;
+            margin-bottom: 0.65rem;
+        }
+        .ai-text-content li {
+            margin-bottom: 0.25rem;
+        }
+        .ai-text-content pre {
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 0.85rem 1rem;
+            border-radius: 0.6rem;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            margin: 0.65rem 0;
+        }
+        .ai-text-content code {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.86em;
+        }
+        .ai-text-content :not(pre) > code {
+            background: #f1f5f9;
+            color: #4f46e5;
+            padding: 0.15rem 0.35rem;
+            border-radius: 0.3rem;
+        }
+        .ai-text-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.65rem 0;
+            font-size: 0.86rem;
+        }
+        .ai-text-content th, .ai-text-content td {
+            border: 1px solid #cbd5e1;
+            padding: 0.45rem 0.65rem;
+            text-align: left;
+        }
+        .ai-text-content th {
+            background: #f1f5f9;
+            font-weight: 600;
+        }
+        .ai-text-content blockquote {
+            border-left: 3px solid #6366f1;
+            padding-left: 0.85rem;
+            color: #475569;
+            margin: 0.5rem 0;
+        }
+
+        /* Interactive Citation Badge [1], [2] */
+        .citation-ref {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #eef2ff;
+            color: #4f46e5;
+            border: 1px solid #c7d2fe;
+            font-size: 0.73rem;
+            font-weight: 700;
+            padding: 0.05rem 0.4rem;
+            border-radius: 0.35rem;
+            margin: 0 0.1rem;
+            cursor: pointer;
+            text-decoration: none;
+            vertical-align: baseline;
+            transition: all 0.15s ease;
+        }
+        .citation-ref:hover {
+            background: #4f46e5;
+            color: #ffffff;
+            border-color: #4f46e5;
+        }
+
+        /* Source Citation Card */
+        .source-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-left: 3px solid #4f46e5;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.6rem;
+            margin-top: 0.5rem;
+            font-size: 0.82rem;
+            transition: all 0.2s ease;
+        }
+        .source-card.highlight-flash {
+            background: #eef2ff;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+        }
+        .source-snippet {
+            color: #475569;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            margin-top: 0.35rem;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .source-card.expanded .source-snippet {
+            -webkit-line-clamp: unset;
+        }
+
+        .chat-input-area {
+            padding: 0.85rem 1.25rem;
+            border-top: 1px solid #f1f5f9;
+            background: #ffffff;
+        }
+
+        .mode-btn-group .btn-check:checked + .btn {
+            background-color: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
+
+        .quick-pill {
+            cursor: pointer;
+            transition: all 0.18s ease;
+            background: #f8fafc;
+            color: #475569;
+            border: 1px solid #e2e8f0;
+            font-size: 0.8rem;
+            padding: 0.3rem 0.75rem;
+            border-radius: 50rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .quick-pill:hover {
+            background: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
+
+        .chat-textarea {
+            resize: none;
+            max-height: 130px;
+            overflow-y: auto;
+            line-height: 1.45;
+            border-radius: 1rem;
+        }
+
+        .typing-indicator span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: #94a3b8;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+            margin: 0 1px;
+        }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1.0); }
+        }
+
+        /* Voice Recognition & Audio */
+        .voice-btn {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+        .voice-btn.recording {
+            background-color: #ef4444 !important;
+            border-color: #ef4444 !important;
+            color: #ffffff !important;
+            animation: mic-pulse 1.3s infinite ease-in-out;
+        }
+        @keyframes mic-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        /* Quiz UI */
+        .quiz-option-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.85rem 1.1rem;
+            border-radius: 0.85rem;
+            border: 1.5px solid #e2e8f0;
+            background: #ffffff;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            color: #1e293b;
+            font-size: 0.95rem;
+        }
+        .quiz-option-card:hover:not(.disabled) {
+            border-color: #6366f1;
+            background: #f8fafc;
+        }
+        .quiz-option-letter {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            flex-shrink: 0;
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .quiz-option-card.selected-correct {
+            border-color: #16a34a !important;
+            background-color: #f0fdf4 !important;
+            color: #15803d !important;
+        }
+        .quiz-option-card.selected-correct .quiz-option-letter {
+            background-color: #16a34a;
+            color: #ffffff;
+        }
+        .quiz-option-card.selected-wrong {
+            border-color: #dc2626 !important;
+            background-color: #fef2f2 !important;
+            color: #b91c1c !important;
+        }
+        .quiz-option-card.selected-wrong .quiz-option-letter {
+            background-color: #dc2626;
+            color: #ffffff;
+        }
+        .quiz-option-card.correct-highlight {
+            border-color: #16a34a !important;
+            background-color: #f0fdf4 !important;
+            color: #15803d !important;
+            box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+        }
+        .quiz-option-card.correct-highlight .quiz-option-letter {
+            background-color: #16a34a;
+            color: #ffffff;
+        }
+        .quiz-option-card.disabled {
+            cursor: default;
+            pointer-events: none;
+        }
+        .quiz-explanation-box {
+            background: #f8fafc;
+            border-left: 4px solid #4f46e5;
+            border-radius: 0.6rem;
+            padding: 0.85rem 1rem;
+            font-size: 0.88rem;
+            line-height: 1.55;
+            animation: fadeIn 0.25s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 991.98px) {
+            .conv-sidebar {
+                position: absolute;
+                z-index: 20;
+                height: 100%;
+                box-shadow: 4px 0 16px rgba(0, 0, 0, 0.08);
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Left Sidebar -->
+    <div th:replace="~{fragments/sidebar :: sidebar(activeTab='ai-chat')}"></div>
+
+    <!-- Main Content Container -->
+    <div class="main-content">
+        <!-- Top Header -->
+        <div th:replace="~{fragments/header :: header}"></div>
+
+        <!-- Chat Workspace Container -->
+        <div class="chat-workspace position-relative">
+
+            <!-- Conversation History Panel -->
+            <aside id="convSidebar" class="conv-sidebar">
+                <div class="conv-sidebar-header d-flex align-items-center justify-content-between gap-2">
+                    <button type="button" class="btn btn-primary btn-sm w-100 rounded-pill d-flex align-items-center justify-content-center gap-1 py-2 shadow-sm"
+                            onclick="startNewConversation()">
+                        <i class="bi bi-plus-lg"></i>
+                        <span>Cuộc trò chuyện mới</span>
+                    </button>
+                </div>
+                <div class="px-3 pt-2 pb-1">
+                    <small class="text-uppercase text-muted fw-semibold" style="font-size: 0.7rem; letter-spacing: 0.04em;">
+                        Lịch sử trò chuyện
+                    </small>
+                </div>
+                <div id="conversationList" class="conv-list">
+                    <div th:if="${#lists.isEmpty(conversations)}" id="emptyConvHint" class="text-center text-muted py-4 px-2 small">
+                        <i class="bi bi-chat-square-dots d-block fs-4 mb-1 opacity-50"></i>
+                        Chưa có cuộc trò chuyện nào
+                    </div>
+                    <div th:each="conv : ${conversations}"
+                         class="conv-item"
+                         th:id="'conv_item_' + ${conv.id}"
+                         th:classappend="${activeConversationId != null and activeConversationId == conv.id} ? 'active' : ''"
+                         th:attr="data-conv-id=${conv.id},data-conv-title=${conv.title}"
+                         onclick="loadConversation(this.getAttribute('data-conv-id'))">
+                        <div class="conv-item-title">
+                            <i class="bi me-1" th:classappend="${conv.mode == 'RAG'} ? 'bi-file-earmark-text text-primary' : 'bi-chat-dots text-secondary'"></i>
+                            <span class="conv-title-text" th:text="${conv.title}">Tiêu đề</span>
+                        </div>
+                        <div class="conv-item-actions" onclick="event.stopPropagation();">
+                            <button type="button" class="conv-action-btn" title="Đổi tên"
+                                    th:attr="data-id=${conv.id},data-title=${conv.title}"
+                                    onclick="promptRenameConversation(this.getAttribute('data-id'), this.getAttribute('data-title'))">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button type="button" class="conv-action-btn delete" title="Xóa"
+                                    th:attr="data-id=${conv.id}"
+                                    onclick="deleteConversation(this.getAttribute('data-id'))">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Chat Panel -->
+            <div class="chat-main">
+                <!-- Header with Controls -->
+                <div class="chat-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-light border rounded-3" onclick="toggleConvSidebar()" title="Đóng/mở lịch sử trò chuyện">
+                            <i class="bi bi-layout-sidebar-inset"></i>
+                        </button>
+                        <div class="avatar-bubble avatar-ai shadow-sm">
+                            <i class="bi bi-stars"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold text-dark d-flex align-items-center gap-2 flex-wrap">
+                                <span>StudyHub AI</span>
+                                <span id="activeProviderBadge" class="badge bg-primary-subtle text-primary border"
+                                      th:text="${aiConfig.provider.displayName}">Google Gemini</span>
+                                <span id="activeModelBadge" class="badge bg-light text-secondary border small"
+                                      th:text="${aiConfig.activeModel}">gemini-3.8-flash</span>
+                            </div>
+                            <small class="text-muted" style="font-size: 0.74rem;">
+                                <span id="statusIndicator" th:class="${aiConfig.hasActiveKey()} ? 'text-success' : 'text-secondary'">
+                                    <i class="bi bi-circle-fill" style="font-size: 0.45rem;"></i>
+                                    <span id="statusText" th:text="${aiConfig.hasActiveKey()} ? 'Trực tuyến' : 'Tạm gián đoạn'">Trực tuyến</span>
+                                </span>
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Mode & Settings Toolbar -->
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <div class="d-inline-block">
+                            <select id="quickModelPicker" class="form-select form-select-sm shadow-sm fw-medium border-primary-subtle" style="max-width: 250px;" onchange="handleQuickModelChange(this.value)" title="Chọn nhanh mô hình AI">
+                                <optgroup label="Groq Cloud - Siêu tốc">
+                                    <option value="GROQ:qwen/qwen3.8-27b" th:selected="${aiConfig.provider.name() == 'GROQ' and aiConfig.groqModel == 'qwen/qwen3.8-27b'}">Qwen 3.8 27B (Khuyên dùng)</option>
+                                </optgroup>
+                                <optgroup label="Google Gemini">
+                                    <option value="GEMINI:gemini-3.8-flash" th:selected="${aiConfig.provider.name() == 'GEMINI' and aiConfig.geminiModel == 'gemini-3.8-flash'}">Gemini 3.8 Flash (Khuyên dùng)</option>
+                                </optgroup>
+                            </select>
+                        </div>
+
+                        <div class="btn-group btn-group-sm mode-btn-group shadow-sm" role="group">
+                            <input type="radio" class="btn-check" name="chatModeRadio" id="modeGeneral" value="GENERAL" autocomplete="off"
+                                   th:checked="${selectedDocId == null}">
+                            <label class="btn btn-outline-secondary px-3" for="modeGeneral">
+                                Trò chuyện
+                            </label>
+
+                            <input type="radio" class="btn-check" name="chatModeRadio" id="modeRag" value="RAG" autocomplete="off"
+                                   th:checked="${selectedDocId != null}">
+                            <label class="btn btn-outline-secondary px-3" for="modeRag">
+                                Tra cứu tài liệu
+                            </label>
+                        </div>
+
+                        <div id="ragDocumentSelector" class="d-inline-block" th:classappend="${selectedDocId != null} ? '' : 'd-none'">
+                            <select id="selectedDocumentId" class="form-select form-select-sm shadow-sm" style="max-width: 280px;" onchange="updateQuickPrompts()">
+                                <option value="">Tất cả tài liệu trong kho</option>
+                                <option th:each="doc : ${documents}"
+                                        th:value="${doc.id}"
+                                        th:disabled="${doc.indexStatus == 'NO_CONTENT'}"
+                                        th:text="${doc.title} + ' (' + ${doc.fileExtension} + ')' + (${doc.indexStatus == 'NO_CONTENT'} ? ' - File nén' : '')"
+                                        th:selected="${selectedDocId != null and selectedDocId == doc.id}">
+                                </option>
+                            </select>
+                        </div>
+
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill shadow-sm px-3"
+                                onclick="openQuizSetupModal()" title="Tạo bộ câu hỏi trắc nghiệm ôn tập từ tài liệu">
+                            Tạo Quiz ôn tập
+                        </button>
+
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill shadow-sm px-3"
+                                data-bs-toggle="modal" data-bs-target="#aiConfigModal" title="Tùy chọn mô hình AI">
+                            Tùy chọn AI
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Messages Scroll Area -->
+                <div id="chatMessages" class="chat-messages">
+                    <!-- Welcome Greeting Message -->
+                    <div id="welcomeGreeting" class="message-row ai">
+                        <div class="avatar-bubble avatar-ai">
+                            <i class="bi bi-stars"></i>
+                        </div>
+                        <div class="message-bubble">
+                            <p class="mb-1 fw-semibold text-dark">
+                                Xin chào<span th:if="${session.currentUser != null}" th:text="' ' + ${session.currentUser.fullName}"></span>! Tôi có thể hỗ trợ gì cho bạn hôm nay?
+                            </p>
+                            <p class="mb-0 text-secondary" style="font-size: 0.9rem;">
+                                Bạn có thể trò chuyện trực tiếp để giải đáp kiến thức học thuật hoặc chuyển sang chế độ <strong>Tra cứu tài liệu</strong> để phân tích, tìm kiếm và trích dẫn chính xác từ kho học liệu của bạn.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- If user opened with a specific doc -->
+                    <div th:if="${selectedDoc != null}" id="selectedDocBanner" class="message-row ai">
+                        <div class="avatar-bubble avatar-ai">
+                            <i class="bi bi-file-earmark-check"></i>
+                        </div>
+                        <div class="message-bubble">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span class="badge bg-primary-subtle text-primary border">Tài liệu đang chọn</span>
+                                <strong class="text-dark" th:text="${selectedDoc.title}"></strong>
+                            </div>
+                            <p class="mb-0 text-secondary" style="font-size: 0.88rem;">
+                                Đặt câu hỏi bất kỳ để trích xuất nội dung, tóm tắt hoặc tạo câu hỏi ôn tập từ tài liệu này.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Suggestions & Input Area -->
+                <div class="chat-input-area">
+                    <!-- Dynamic Quick Suggestion Pills -->
+                    <div id="quickPromptsContainer" class="d-flex flex-wrap gap-2 mb-2"></div>
+
+                    <!-- Input Group -->
+                    <form id="chatForm" onsubmit="handleSendMessage(event)" class="d-flex gap-2 align-items-end">
+                        <button type="button" id="voiceInputBtn" class="btn btn-outline-secondary rounded-circle shadow-sm voice-btn"
+                                title="Nhận diện giọng nói Tiếng Việt" onclick="toggleVoiceRecording()">
+                            <i class="bi bi-mic-fill"></i>
+                        </button>
+                        <textarea id="userMessageInput" class="form-control chat-textarea px-3 py-2 shadow-sm" rows="1"
+                                  placeholder="Đặt câu hỏi hoặc bấm mic để nói tiếng Việt... (Enter để gửi, Shift + Enter để xuống dòng)"
+                                  required></textarea>
+                        <button type="button" id="stopBtn" class="btn btn-outline-danger rounded-pill px-3 py-2 shadow-sm d-none align-items-center gap-1"
+                                onclick="cancelActiveRequest()">
+                            <i class="bi bi-stop-circle-fill"></i>
+                            <span>Dừng</span>
+                        </button>
+                        <button type="submit" id="sendBtn" class="btn btn-primary rounded-pill px-4 py-2 shadow-sm d-flex align-items-center gap-1">
+                            <span>Gửi</span>
+                            <i class="bi bi-send-fill"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Document Quick View Modal -->
+    <div class="modal fade" id="docPreviewModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light rounded-top-4">
+                    <h6 class="modal-title fw-bold d-flex align-items-center gap-2" id="docPreviewTitle">
+                        <i class="bi bi-file-earmark-text text-primary"></i>
+                        <span>Thông tin tài liệu</span>
+                    </h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4" id="docPreviewBody">
+                    <div class="text-center py-3 text-muted">Đang tải thông tin tài liệu...</div>
+                </div>
+                <div class="modal-footer border-top bg-light rounded-bottom-4 justify-content-between flex-wrap gap-2">
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3" id="docPreviewAskBtn">
+                            <i class="bi bi-chat-dots me-1"></i> Hỏi riêng tài liệu này
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success rounded-pill px-3" id="docPreviewQuizBtn">
+                            <i class="bi bi-patch-question me-1"></i> Tạo Quiz tài liệu này
+                        </button>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="#" id="docPreviewDownloadBtn" class="btn btn-sm btn-primary rounded-pill px-3">
+                            <i class="bi bi-download me-1"></i> Tải xuống
+                        </a>
+                        <button type="button" class="btn btn-sm btn-secondary rounded-pill px-3" data-bs-dismiss="modal">Đóng</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Interactive RAG Quiz Modal -->
+    <div class="modal fade" id="aiQuizModal" tabindex="-1" aria-labelledby="aiQuizModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light rounded-top-4">
+                    <h5 class="modal-title fw-bold d-flex align-items-center gap-2" id="aiQuizModalLabel">
+                        <i class="bi bi-patch-question text-primary"></i>
+                        <span>Quiz Trắc Nghiệm Ôn Tập Tài Liệu</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <!-- SCREEN 1: QUIZ SETUP -->
+                <div id="quizViewSetup" class="modal-body p-4">
+                    <p class="text-secondary small mb-3">
+                        Hệ thống sẽ trích xuất kiến thức cốt lõi từ các tài liệu học tập của bạn qua mô hình RAG để biên soạn bộ câu hỏi trắc nghiệm tương tác giúp bạn ôn tập và kiểm tra kiến thức.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-secondary">TÀI LIỆU CẦN ÔN TẬP</label>
+                        <select id="quizDocSelect" class="form-select form-select-sm">
+                            <option value="">Toàn bộ kho học liệu của bạn</option>
+                            <option th:each="doc : ${documents}"
+                                    th:value="${doc.id}"
+                                    th:disabled="${doc.indexStatus == 'NO_CONTENT'}"
+                                    th:text="${doc.title} + ' (' + ${doc.fileExtension} + ')'">
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small text-secondary">CHỦ ĐỀ TRỌNG TÂM (TÙY CHỌN)</label>
+                        <input type="text" id="quizTopicInput" class="form-control form-control-sm"
+                               placeholder="Ví dụ: Chiến lược 4P, Truy vấn JOIN và Window Functions, Cây AVL...">
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-sm-6">
+                            <label class="form-label fw-semibold small text-secondary">SỐ LƯỢNG CÂU HỎI</label>
+                            <select id="quizCountSelect" class="form-select form-select-sm">
+                                <option value="3">3 câu (Ôn tập nhanh)</option>
+                                <option value="5" selected>5 câu (Tiêu chuẩn)</option>
+                                <option value="10">10 câu (Chuyên sâu)</option>
+                            </select>
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-semibold small text-secondary">MỨC ĐỘ KHÓ</label>
+                            <select id="quizDifficultySelect" class="form-select form-select-sm">
+                                <option value="EASY">Cơ bản (Nhận biết & Thông hiểu)</option>
+                                <option value="MEDIUM" selected>Vận dụng (Áp dụng & Tình huống)</option>
+                                <option value="HARD">Nâng cao (Phân tích & Đánh giá)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="quizSetupAlert" class="alert d-none small py-2 mb-0"></div>
+                </div>
+                <div id="quizSetupFooter" class="modal-footer border-top bg-light rounded-bottom-4">
+                    <button type="button" class="btn btn-secondary rounded-pill px-3" data-bs-dismiss="modal">Đóng</button>
+                    <button type="button" id="startQuizBtn" class="btn btn-primary rounded-pill px-4 shadow-sm" onclick="startQuizGeneration()">
+                        <i class="bi bi-play-circle-fill me-1"></i> Bắt đầu tạo bài Quiz
+                    </button>
+                </div>
+
+                <!-- SCREEN 2: QUIZ RUNNER (INTERACTIVE QUESTION) -->
+                <div id="quizViewRunner" class="modal-body p-4 d-none">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <span id="quizRunnerProgressBadge" class="badge bg-primary-subtle text-primary border">Câu 1/5</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span id="quizRunnerScoreBadge" class="badge bg-success-subtle text-success border">Điểm: 0</span>
+                            <span id="quizRunnerDocBadge" class="badge bg-light text-secondary border small text-truncate" style="max-width: 260px;">Tài liệu</span>
+                        </div>
+                    </div>
+                    <div class="progress mb-4" style="height: 6px;">
+                        <div id="quizRunnerProgressBar" class="progress-bar bg-primary" role="progressbar" style="width: 20%;"></div>
+                    </div>
+
+                    <h5 id="quizQuestionText" class="fw-bold text-dark mb-4 lh-base">
+                        Nội dung câu hỏi?
+                    </h5>
+
+                    <!-- Options list -->
+                    <div id="quizOptionsContainer" class="d-flex flex-column gap-2 mb-4"></div>
+
+                    <!-- Instant Explanation Box -->
+                    <div id="quizExplanationBox" class="quiz-explanation-box d-none mb-3">
+                        <div class="fw-bold text-dark d-flex align-items-center gap-1 mb-1" id="quizExplanationHeader">
+                            <i class="bi bi-lightbulb-fill text-warning"></i>
+                            <span>Giải thích chi tiết từ tài liệu:</span>
+                        </div>
+                        <div id="quizExplanationText" class="text-secondary small"></div>
+                        <div class="text-muted mt-2 pt-2 border-top small" id="quizSourceReference">
+                            <i class="bi bi-bookmark-fill text-primary me-1"></i> Nguồn tham chiếu: <span class="fw-semibold"></span>
+                        </div>
+                    </div>
+                </div>
+                <div id="quizRunnerFooter" class="modal-footer border-top bg-light rounded-bottom-4 justify-content-between d-none">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-3" onclick="showQuizSetupScreen()">
+                        <i class="bi bi-arrow-left me-1"></i> Thoát
+                    </button>
+                    <button type="button" id="quizNextBtn" class="btn btn-primary rounded-pill px-4 shadow-sm" onclick="advanceQuizQuestion()" disabled>
+                        <span>Câu tiếp theo</span>
+                        <i class="bi bi-arrow-right ms-1"></i>
+                    </button>
+                </div>
+
+                <!-- SCREEN 3: QUIZ RESULT SUMMARY -->
+                <div id="quizViewResult" class="modal-body p-4 text-center d-none">
+                    <div class="mb-3">
+                        <div class="avatar-bubble avatar-ai mx-auto shadow-sm" style="width: 56px; height: 56px; font-size: 1.6rem;">
+                            <i class="bi bi-trophy-fill text-warning"></i>
+                        </div>
+                    </div>
+                    <h4 class="fw-bold text-dark mb-1">Kết Quả Hoàn Thành Bài Quiz</h4>
+                    <p class="text-muted small mb-3" id="quizResultDocTitle">Ôn tập tài liệu</p>
+
+                    <div class="bg-light rounded-4 p-4 mb-4 border d-inline-block w-100">
+                        <div class="display-5 fw-bold text-primary mb-1" id="quizFinalScore">8.0 / 10</div>
+                        <div class="text-secondary fw-semibold mb-2" id="quizFinalAccuracy">Đúng 4 / 5 câu (80%)</div>
+                        <div class="small text-muted" id="quizFinalFeedback">Bạn nắm rất tốt các kiến thức cơ bản trong tài liệu!</div>
+                    </div>
+
+                    <div class="text-start mb-3">
+                        <h6 class="fw-bold text-dark mb-2"><i class="bi bi-card-checklist me-1"></i> Bảng đối chiếu câu hỏi</h6>
+                        <div id="quizResultBreakdown" class="d-flex flex-column gap-2 small"></div>
+                    </div>
+                </div>
+                <div id="quizResultFooter" class="modal-footer border-top bg-light rounded-bottom-4 justify-content-between d-none">
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary rounded-pill px-3" onclick="retakeCurrentQuiz()">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i> Làm lại đề này
+                        </button>
+                        <button type="button" class="btn btn-outline-primary rounded-pill px-3" onclick="showQuizSetupScreen()">
+                            <i class="bi bi-plus-circle me-1"></i> Tạo đề mới
+                        </button>
+                    </div>
+                    <button type="button" class="btn btn-primary rounded-pill px-4" data-bs-dismiss="modal">
+                        Hoàn tất
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="aiConfigModal" tabindex="-1" aria-labelledby="aiConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light rounded-top-4">
+                    <h5 class="modal-title fw-bold" id="aiConfigModalLabel">
+                        Tùy chọn mô hình AI
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="aiConfigForm" onsubmit="handleSaveConfig(event)">
+                    <div class="modal-body p-4">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small text-secondary">NHÀ CUNG CẤP AI</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <div class="form-check p-3 border rounded-3 flex-fill" style="cursor: pointer; min-width: 140px; background-color: #fdfbf7;">
+                                    <input class="form-check-input" type="radio" name="providerRadio" id="providerGroq" value="GROQ"
+                                           th:checked="${aiConfig.provider.name() == 'GROQ'}">
+                                    <label class="form-check-label fw-semibold" for="providerGroq">
+                                        Groq Cloud
+                                        <div class="small text-muted fw-normal">Miễn phí &amp; Siêu tốc</div>
+                                    </label>
+                                </div>
+                                <div class="form-check p-3 border rounded-3 flex-fill" style="cursor: pointer; min-width: 140px;">
+                                    <input class="form-check-input" type="radio" name="providerRadio" id="providerGemini" value="GEMINI"
+                                           th:checked="${aiConfig.provider.name() == 'GEMINI'}">
+                                    <label class="form-check-label fw-semibold" for="providerGemini">
+                                        Google Gemini
+                                        <div class="small text-muted fw-normal">gemini-3.8-flash</div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="groqConfigGroup" class="mb-3">
+                            <label class="form-label fw-semibold small mb-1">Phiên bản mô hình Groq</label>
+                            <select id="groqModelSelect" class="form-select">
+                                <option value="qwen/qwen3.8-27b" th:selected="${aiConfig.groqModel == 'qwen/qwen3.8-27b'}">Qwen 3.8 27B (Khuyên dùng - Siêu tốc &amp; Thông minh)</option>
+                            </select>
+                            <div class="form-text small text-muted mt-1">Vận hành bởi hệ thống máy chủ tăng tốc LPU của Groq.</div>
+                        </div>
+
+                        <div id="geminiConfigGroup" class="mb-3 d-none">
+                            <label class="form-label fw-semibold small mb-1">Phiên bản mô hình Gemini</label>
+                            <select id="geminiModelSelect" class="form-select">
+                                <option value="gemini-3.8-flash" th:selected="${aiConfig.geminiModel == 'gemini-3.8-flash'}">Gemini 3.8 Flash (Khuyên dùng - Google DeepMind)</option>
+                            </select>
+                            <div class="form-text small text-muted mt-1">Vận hành bởi nền tảng Google DeepMind.</div>
+                        </div>
+
+                        <div id="configAlertBox" class="alert d-none small py-2 mb-0" role="alert"></div>
+                    </div>
+                    <div class="modal-footer border-top bg-light rounded-bottom-4">
+                        <button type="button" class="btn btn-secondary rounded-pill px-3" data-bs-dismiss="modal">Đóng</button>
+                        <button type="submit" id="saveConfigBtn" class="btn btn-primary rounded-pill px-4">
+                            Áp dụng
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename Conversation Modal -->
+    <div class="modal fade" id="renameConvModal" tabindex="-1" aria-labelledby="renameConvModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light rounded-top-4 py-3">
+                    <h6 class="modal-title fw-bold d-flex align-items-center gap-2 mb-0" id="renameConvModalLabel">
+                        <i class="bi bi-pencil-square text-primary"></i>
+                        <span>Đổi tên cuộc trò chuyện</span>
+                    </h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="renameConvForm" onsubmit="handleRenameSubmit(event)">
+                    <div class="modal-body p-3">
+                        <label for="renameConvInput" class="form-label fw-semibold small text-secondary">TÊN MỚI</label>
+                        <input type="text" id="renameConvInput" class="form-control rounded-3" maxlength="100" required placeholder="Nhập tên mới cho cuộc trò chuyện...">
+                        <input type="hidden" id="renameConvId">
+                    </div>
+                    <div class="modal-footer border-top bg-light rounded-bottom-4 py-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" data-bs-dismiss="modal">Hủy</button>
+                        <button type="submit" class="btn btn-sm btn-primary rounded-pill px-3 shadow-sm">
+                            <i class="bi bi-check-lg me-1"></i> Lưu thay đổi
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Conversation Confirmation Modal -->
+    <div class="modal fade" id="deleteConvModal" tabindex="-1" aria-labelledby="deleteConvModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light rounded-top-4 py-3">
+                    <h6 class="modal-title fw-bold d-flex align-items-center gap-2 text-danger mb-0" id="deleteConvModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>Xác nhận xóa</span>
+                    </h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <p class="mb-1 text-dark fw-medium small">Bạn có chắc chắn muốn xóa cuộc trò chuyện này?</p>
+                    <p class="mb-0 text-muted small" style="font-size: 0.78rem;">Toàn bộ tin nhắn trao đổi trong phiên này sẽ không thể khôi phục.</p>
+                    <input type="hidden" id="deleteConvId">
+                </div>
+                <div class="modal-footer border-top bg-light rounded-bottom-4 py-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" data-bs-dismiss="modal">Hủy</button>
+                    <button type="button" id="confirmDeleteConvBtn" class="btn btn-sm btn-danger rounded-pill px-3 shadow-sm" onclick="executeDeleteConversation()">
+                        <i class="bi bi-trash3-fill me-1"></i> Xóa vĩnh viễn
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- General Notification / Alert Modal -->
+    <div class="modal fade" id="appAlertModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content border-0 shadow-lg rounded-4 text-center p-3">
+                <div class="modal-body p-2">
+                    <div class="avatar-bubble mx-auto mb-3 shadow-sm" style="width: 48px; height: 48px; font-size: 1.4rem;">
+                        <i class="bi bi-info-circle-fill text-primary" id="appAlertIcon"></i>
+                    </div>
+                    <h6 class="fw-bold text-dark mb-1" id="appAlertTitle">Thông báo</h6>
+                    <p class="text-secondary small mb-3" id="appAlertMessage"></p>
+                    <button type="button" class="btn btn-sm btn-primary rounded-pill px-4 w-100" data-bs-dismiss="modal">Đã hiểu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Marked.js, DOMPurify & KaTeX for Markdown and Math Rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+
+    <!-- Chat & RAG Client-side Script -->
+    <script th:inline="javascript">
+        let activeConversationId = /*[[${activeConversationId}]]*/ null;
+        let activeAbortController = null;
+        const userFullName = /*[[${session.currentUser != null ? session.currentUser.fullName : ''}]]*/ '';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const modeRadios = document.querySelectorAll('input[name="chatModeRadio"]');
+            const ragSelector = document.getElementById('ragDocumentSelector');
+
+            modeRadios.forEach(radio => {
+                radio.addEventListener('change', function () {
+                    if (this.value === 'RAG') {
+                        ragSelector.classList.remove('d-none');
+                    } else {
+                        ragSelector.classList.add('d-none');
+                    }
+                    updateQuickPrompts();
+                });
+            });
+
+            // Auto-resize textarea and Enter to submit
+            const textarea = document.getElementById('userMessageInput');
+            textarea.addEventListener('input', function () {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 130) + 'px';
+            });
+            textarea.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+                }
+            });
+
+            const providerRadios = document.querySelectorAll('input[name="providerRadio"]');
+            const geminiGroup = document.getElementById('geminiConfigGroup');
+            const groqGroup = document.getElementById('groqConfigGroup');
+
+            function updateProviderView() {
+                const checked = document.querySelector('input[name="providerRadio"]:checked').value;
+                if (checked === 'GEMINI') {
+                    geminiGroup.classList.remove('d-none');
+                    groqGroup.classList.add('d-none');
+                } else {
+                    groqGroup.classList.remove('d-none');
+                    geminiGroup.classList.add('d-none');
+                }
+            }
+
+            providerRadios.forEach(r => r.addEventListener('change', updateProviderView));
+            updateProviderView();
+            updateQuickPrompts();
+
+            if (activeConversationId) {
+                loadConversation(activeConversationId, false);
+            }
+        });
+
+        function handleQuickModelChange(val) {
+            if (!val) return;
+            const parts = val.split(':');
+            const provider = parts[0];
+            const model = parts[1];
+
+            const payload = { provider: provider };
+            if (provider === 'GROQ') {
+                payload.groqModel = model;
+            } else {
+                payload.geminiModel = model;
+            }
+
+            fetch('/api/ai/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const provBadge = document.getElementById('activeProviderBadge');
+                    const modelBadge = document.getElementById('activeModelBadge');
+                    if (provBadge) provBadge.textContent = data.providerName;
+                    if (modelBadge) modelBadge.textContent = data.activeModel;
+
+                    const statusInd = document.getElementById('statusIndicator');
+                    const statusText = document.getElementById('statusText');
+                    if (data.hasKey) {
+                        statusInd.className = 'text-success';
+                        statusText.textContent = 'Trực tuyến';
+                    } else {
+                        statusInd.className = 'text-secondary';
+                        statusText.textContent = 'Tạm gián đoạn';
+                    }
+
+                    const radio = document.querySelector(`input[name="providerRadio"][value="${provider}"]`);
+                    if (radio) {
+                        radio.checked = true;
+                        const gemGroup = document.getElementById('geminiConfigGroup');
+                        const grqGroup = document.getElementById('groqConfigGroup');
+                        if (provider === 'GEMINI') {
+                            gemGroup.classList.remove('d-none');
+                            grqGroup.classList.add('d-none');
+                        } else {
+                            grqGroup.classList.remove('d-none');
+                            gemGroup.classList.add('d-none');
+                        }
+                    }
+                }
+            })
+            .catch(err => console.warn('Lỗi đổi model:', err));
+        }
+
+        function toggleConvSidebar() {
+            document.getElementById('convSidebar').classList.toggle('collapsed');
+        }
+
+        function updateQuickPrompts() {
+            const container = document.getElementById('quickPromptsContainer');
+            const mode = document.querySelector('input[name="chatModeRadio"]:checked').value;
+            const docSelect = document.getElementById('selectedDocumentId');
+            const hasSpecificDoc = mode === 'RAG' && docSelect && docSelect.value !== '';
+
+            let prompts = [];
+            if (mode === 'GENERAL') {
+                prompts = [
+                    { label: 'Dependency Injection là gì?', text: 'Giải thích khái niệm Dependency Injection và Inversion of Control trong Spring Boot kèm ví dụ thực tế' },
+                    { label: 'So sánh Clustered & Non-Clustered Index', text: 'So sánh sự khác biệt giữa Clustered Index và Non-Clustered Index trong SQL Server' },
+                    { label: 'Dàn ý báo cáo đồ án', text: 'Lập dàn ý chi tiết cho báo cáo đồ án môn học kỹ thuật phần mềm' },
+                    { label: 'Phương pháp ôn thi hiệu quả', text: 'Gợi ý chiến lược ôn thi hiệu quả cho các môn chuyên ngành đại học' }
+                ];
+            } else if (hasSpecificDoc) {
+                prompts = [
+                    { label: 'Tóm tắt tài liệu này', text: 'Tóm tắt có hệ thống các nội dung cốt lõi của tài liệu này' },
+                    { label: 'Các khái niệm & công thức chính', text: 'Liệt kê các khái niệm, định nghĩa và công thức quan trọng nhất trong tài liệu này' },
+                    { label: 'Tạo 5 câu hỏi trắc nghiệm', text: 'Tạo 5 câu hỏi trắc nghiệm ôn tập kèm đáp án và giải thích dựa trên nội dung tài liệu này' },
+                    { label: 'Phân tích ví dụ thực tế', text: 'Giải thích chi tiết các ví dụ hoặc bài tập thực hành có trong tài liệu này' }
+                ];
+            } else {
+                prompts = [
+                    { label: 'Tài liệu về Marketing 4P', text: 'Cho tôi các tệp tài liệu liên quan tới việc marketing và tóm tắt chiến lược 4P' },
+                    { label: 'Truy vấn SQL & tối ưu JOIN', text: 'Tìm tài liệu hướng dẫn truy vấn SQL nâng cao, Window Functions và tối ưu hóa JOIN' },
+                    { label: 'Thuật toán Dijkstra & Quy hoạch động', text: 'Tài liệu nào trình bày về thuật toán Dijkstra, cây AVL và quy hoạch động?' },
+                    { label: 'Công thức Xác suất thống kê', text: 'Tóm tắt các công thức phân phối chuẩn, ước lượng khoảng tin cậy và kiểm định giả thuyết' }
+                ];
+            }
+
+            container.innerHTML = prompts.map(p => `
+                <span class="quick-pill" data-prompt="${escapeHtml(p.text)}" onclick="sendQuickPrompt(this.getAttribute('data-prompt'))">
+                    ${escapeHtml(p.label)}
+                </span>
+            `).join('');
+        }
+
+        function sendQuickPrompt(promptText) {
+            const input = document.getElementById('userMessageInput');
+            input.value = promptText;
+            document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+        }
+
+        function startNewConversation() {
+            activeConversationId = null;
+            document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+
+            const url = new URL(window.location);
+            url.searchParams.delete('convId');
+            window.history.replaceState({}, '', url);
+
+            const container = document.getElementById('chatMessages');
+            const greetingName = userFullName ? ' ' + escapeHtml(userFullName) : '';
+            container.innerHTML = `
+                <div id="welcomeGreeting" class="message-row ai">
+                    <div class="avatar-bubble avatar-ai">
+                        <i class="bi bi-stars"></i>
+                    </div>
+                    <div class="message-bubble">
+                        <p class="mb-1 fw-semibold text-dark">
+                            Xin chào${greetingName}! Tôi có thể hỗ trợ gì cho bạn hôm nay?
+                        </p>
+                        <p class="mb-0 text-secondary" style="font-size: 0.9rem;">
+                            Bạn có thể trò chuyện trực tiếp để giải đáp kiến thức học thuật hoặc chuyển sang chế độ <strong>Tra cứu tài liệu</strong> để phân tích, tìm kiếm và trích dẫn chính xác từ kho học liệu của bạn.
+                        </p>
+                    </div>
+                </div>
+            `;
+            document.getElementById('userMessageInput').focus();
+        }
+
+        function loadConversation(convId, updateUrl = true) {
+            if (!convId) return;
+            fetch('/api/ai/conversations/' + convId)
+                .then(res => {
+                    if (!res.ok) throw new Error('Không tìm thấy cuộc trò chuyện');
+                    return res.json();
+                })
+                .then(data => {
+                    if (!data.success) return;
+                    activeConversationId = data.id;
+
+                    // Highlight active item in sidebar
+                    document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+                    const item = document.getElementById('conv_item_' + data.id);
+                    if (item) item.classList.add('active');
+
+                    // Sync mode radio and document dropdown
+                    if (data.mode === 'RAG') {
+                        document.getElementById('modeRag').checked = true;
+                        document.getElementById('ragDocumentSelector').classList.remove('d-none');
+                        const docSelect = document.getElementById('selectedDocumentId');
+                        if (docSelect) {
+                            docSelect.value = data.selectedDocumentId ? String(data.selectedDocumentId) : '';
+                        }
+                    } else {
+                        document.getElementById('modeGeneral').checked = true;
+                        document.getElementById('ragDocumentSelector').classList.add('d-none');
+                    }
+                    updateQuickPrompts();
+
+                    if (updateUrl) {
+                        const url = new URL(window.location);
+                        url.searchParams.set('convId', data.id);
+                        window.history.replaceState({}, '', url);
+                    }
+
+                    // Render messages
+                    const container = document.getElementById('chatMessages');
+                    container.innerHTML = '';
+                    if (!data.messages || data.messages.length === 0) {
+                        startNewConversation();
+                        return;
+                    }
+
+                    data.messages.forEach(msg => {
+                        if (msg.role === 'USER') {
+                            appendUserMessage(msg.content);
+                        } else {
+                            appendAiResponse({
+                                success: true,
+                                reply: msg.content,
+                                provider: msg.provider || 'StudyHub AI',
+                                mode: msg.mode || data.mode,
+                                documentTitle: msg.mode === 'RAG' ? 'Kho học liệu' : null,
+                                timestamp: msg.timestamp,
+                                sources: msg.sources || []
+                            });
+                        }
+                    });
+                })
+                .catch(err => console.warn('Could not load conversation:', err));
+        }
+
+        function upsertConversationInSidebar(convId, title, mode) {
+            if (!convId) return;
+            const list = document.getElementById('conversationList');
+            const emptyHint = document.getElementById('emptyConvHint');
+            if (emptyHint) emptyHint.remove();
+
+            let existing = document.getElementById('conv_item_' + convId);
+            const iconClass = mode === 'RAG' ? 'bi-file-earmark-text text-primary' : 'bi-chat-dots text-secondary';
+
+            if (existing) {
+                const titleSpan = existing.querySelector('.conv-title-text');
+                if (titleSpan && title) titleSpan.textContent = title;
+                document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+                existing.classList.add('active');
+                list.prepend(existing);
+            } else {
+                document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+                const div = document.createElement('div');
+                div.className = 'conv-item active';
+                div.id = 'conv_item_' + convId;
+                div.setAttribute('data-conv-id', convId);
+                div.setAttribute('data-conv-title', title || 'Cuộc trò chuyện mới');
+                div.onclick = function () { loadConversation(convId); };
+                div.innerHTML = `
+                    <div class="conv-item-title">
+                        <i class="bi ${iconClass} me-1"></i>
+                        <span class="conv-title-text">${escapeHtml(title || 'Cuộc trò chuyện mới')}</span>
+                    </div>
+                    <div class="conv-item-actions" onclick="event.stopPropagation();">
+                        <button type="button" class="conv-action-btn" title="Đổi tên"
+                                onclick="promptRenameConversation('${convId}', '${escapeHtml(title || '')}')">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button type="button" class="conv-action-btn delete" title="Xóa"
+                                onclick="deleteConversation('${convId}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                `;
+                list.prepend(div);
+            }
+        }
+
+        function promptRenameConversation(convId, currentTitle) {
+            document.getElementById('renameConvId').value = convId;
+            const input = document.getElementById('renameConvInput');
+            input.value = currentTitle || '';
+            const modalEl = document.getElementById('renameConvModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+            setTimeout(() => {
+                input.focus();
+                input.select();
+            }, 300);
+        }
+
+        function handleRenameSubmit(event) {
+            event.preventDefault();
+            const convId = document.getElementById('renameConvId').value;
+            const newTitle = document.getElementById('renameConvInput').value.trim();
+            if (!newTitle) return;
+
+            const modalEl = document.getElementById('renameConvModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) modal.hide();
+
+            fetch('/api/ai/conversations/' + convId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: newTitle })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const item = document.getElementById('conv_item_' + convId);
+                    if (item) {
+                        const span = item.querySelector('.conv-title-text');
+                        if (span) span.textContent = data.title;
+                        const renameBtn = item.querySelector('.conv-action-btn[title="Đổi tên"]');
+                        if (renameBtn) {
+                            renameBtn.setAttribute('data-title', data.title);
+                            renameBtn.setAttribute('onclick', `promptRenameConversation('${convId}', '${escapeHtml(data.title)}')`);
+                        }
+                    }
+                }
+            });
+        }
+
+        function deleteConversation(convId) {
+            document.getElementById('deleteConvId').value = convId;
+            const modalEl = document.getElementById('deleteConvModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+        }
+
+        function executeDeleteConversation() {
+            const convId = document.getElementById('deleteConvId').value;
+            if (!convId) return;
+
+            const modalEl = document.getElementById('deleteConvModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) modal.hide();
+
+            fetch('/api/ai/conversations/' + convId, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        const item = document.getElementById('conv_item_' + convId);
+                        if (item) item.remove();
+                        if (String(activeConversationId) === String(convId)) {
+                            startNewConversation();
+                        }
+                    }
+                });
+        }
+
+        function cancelActiveRequest() {
+            if (activeAbortController) {
+                activeAbortController.abort();
+                activeAbortController = null;
+            }
+        }
+
+        function handleSendMessage(event) {
+            event.preventDefault();
+            const input = document.getElementById('userMessageInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            const mode = document.querySelector('input[name="chatModeRadio"]:checked').value;
+            const docSelect = document.getElementById('selectedDocumentId');
+            const docId = (mode === 'RAG' && docSelect && docSelect.value) ? parseInt(docSelect.value) : null;
+
+            // Render user bubble
+            appendUserMessage(message);
+            input.value = '';
+            input.style.height = 'auto';
+
+            // Render temporary typing indicator
+            const typingId = appendTypingIndicator(mode);
+
+            // Toggle Send / Stop buttons
+            const sendBtn = document.getElementById('sendBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            sendBtn.disabled = true;
+            stopBtn.classList.remove('d-none');
+            stopBtn.classList.add('d-flex');
+
+            activeAbortController = new AbortController();
+
+            fetch('/api/ai/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: activeAbortController.signal,
+                body: JSON.stringify({
+                    message: message,
+                    mode: mode,
+                    documentId: docId,
+                    conversationId: activeConversationId
+                })
+            })
+            .then(res => {
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    throw new Error('Phiên đăng nhập đã hết hạn');
+                }
+                return res.json();
+            })
+            .then(data => {
+                removeTypingIndicator(typingId);
+                resetInputButtons();
+
+                if (data.conversationId) {
+                    activeConversationId = data.conversationId;
+                    upsertConversationInSidebar(data.conversationId, data.conversationTitle, mode);
+                    const url = new URL(window.location);
+                    url.searchParams.set('convId', data.conversationId);
+                    window.history.replaceState({}, '', url);
+                }
+
+                appendAiResponse(data);
+            })
+            .catch(err => {
+                removeTypingIndicator(typingId);
+                resetInputButtons();
+                if (err.name === 'AbortError') {
+                    appendAiResponse({
+                        success: false,
+                        reply: 'Đã hủy yêu cầu phản hồi theo thao tác của bạn.',
+                        provider: 'Hệ thống'
+                    });
+                    return;
+                }
+                appendAiResponse({
+                    success: false,
+                    reply: 'Lỗi mạng hoặc không thể kết nối tới máy chủ: ' + err.message,
+                    provider: 'Hệ thống'
+                });
+            });
+        }
+
+        function resetInputButtons() {
+            const sendBtn = document.getElementById('sendBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            sendBtn.disabled = false;
+            stopBtn.classList.add('d-none');
+            stopBtn.classList.remove('d-flex');
+            activeAbortController = null;
+        }
+
+        function appendUserMessage(text) {
+            const container = document.getElementById('chatMessages');
+            const row = document.createElement('div');
+            row.className = 'message-row user';
+            row.innerHTML = `
+                <div class="avatar-bubble avatar-user shadow-sm">
+                    <i class="bi bi-person-fill"></i>
+                </div>
+                <div class="message-bubble shadow-sm">${escapeHtml(text)}</div>
+            `;
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function appendTypingIndicator(mode) {
+            const container = document.getElementById('chatMessages');
+            const typingId = 'typing_' + Date.now();
+            const row = document.createElement('div');
+            row.className = 'message-row ai';
+            row.id = typingId;
+            const statusLabel = mode === 'RAG'
+                ? 'Đang检索 & phân tích các đoạn trích tài liệu liên quan...'
+                : 'Đang tổng hợp câu trả lời...';
+            row.innerHTML = `
+                <div class="avatar-bubble avatar-ai shadow-sm">
+                    <i class="bi bi-stars"></i>
+                </div>
+                <div class="message-bubble shadow-sm py-2 px-3">
+                    <div class="typing-indicator d-flex align-items-center">
+                        <span></span><span></span><span></span>
+                        <small class="text-muted ms-2" style="font-size: 0.8rem;">${mode === 'RAG' ? 'Đang đối chiếu kho tài liệu và tổng hợp câu trả lời...' : statusLabel}</small>
+                    </div>
+                </div>
+            `;
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+            return typingId;
+        }
+
+        function removeTypingIndicator(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+
+        function appendAiResponse(data) {
+            const container = document.getElementById('chatMessages');
+            const row = document.createElement('div');
+            row.className = 'message-row ai';
+            const msgUniqueId = 'msg_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+
+            if (!data.success) {
+                row.innerHTML = `
+                    <div class="avatar-bubble avatar-ai shadow-sm">
+                        <i class="bi bi-stars"></i>
+                    </div>
+                    <div class="message-bubble shadow-sm border-warning-subtle bg-white">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <span class="badge bg-light text-secondary border small">${escapeHtml(data.provider || 'Hệ thống')}</span>
+                            <small class="text-muted" style="font-size: 0.72rem;">${data.timestamp || ''}</small>
+                        </div>
+                        <div class="text-dark">
+                            ${escapeHtml(data.reply)}
+                        </div>
+                    </div>
+                `;
+                container.appendChild(row);
+                container.scrollTop = container.scrollHeight;
+                return;
+            }
+
+            let modeBadge = '';
+            if (data.mode === 'RAG') {
+                modeBadge = `<span class="badge bg-primary-subtle text-primary border me-1"><i class="bi bi-file-earmark-text me-1"></i>${escapeHtml(data.documentTitle || 'Tra cứu tài liệu')}</span>`;
+            } else {
+                modeBadge = `<span class="badge bg-light text-secondary border me-1"><i class="bi bi-chat-text me-1"></i>Trò chuyện</span>`;
+            }
+
+            const collapseId = 'sources_' + msgUniqueId;
+            let sourcesHtml = '';
+            if (data.sources && data.sources.length > 0) {
+                const sourceItems = data.sources.map((s, idx) => {
+                    const citNum = s.citationNumber || (idx + 1);
+                    const extBadge = s.fileExtension ? `<span class="badge bg-secondary-subtle text-secondary border ms-1" style="font-size: 0.68rem;">${escapeHtml(s.fileExtension)}</span>` : '';
+                    const subjBadge = s.subjectName ? `<span class="badge bg-light text-muted border ms-1" style="font-size: 0.68rem;">${escapeHtml(s.subjectName)}</span>` : '';
+                    const cardId = `src_${msgUniqueId}_${citNum}`;
+
+                    return `
+                        <div class="source-card" id="${cardId}">
+                            <div class="d-flex align-items-center justify-content-between flex-wrap gap-1">
+                                <div class="fw-semibold text-dark d-flex align-items-center flex-wrap gap-1">
+                                    <span class="citation-ref">[${citNum}]</span>
+                                    <span>${escapeHtml(s.documentTitle)}</span>
+                                    ${extBadge}
+                                    ${subjBadge}
+                                    <small class="text-muted fw-normal ms-1">(Đoạn #${(s.chunkIndex || 0) + 1})</small>
+                                </div>
+                                <div class="d-flex align-items-center gap-1">
+                                    <button type="button" class="btn btn-sm btn-link text-decoration-none p-0 px-1 small"
+                                            onclick="document.getElementById('${cardId}').classList.toggle('expanded')" title="Mở rộng đoạn trích">
+                                        <i class="bi bi-arrows-expand"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 rounded-pill" style="font-size: 0.73rem;"
+                                            onclick="openDocumentPreview(${s.documentId})">
+                                        <i class="bi bi-info-circle me-1"></i>Chi tiết
+                                    </button>
+                                    <a href="/documents/download/${s.documentId}" class="btn btn-sm btn-outline-primary py-0 px-2 rounded-pill" style="font-size: 0.73rem;">
+                                        <i class="bi bi-download me-1"></i>Tải file
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="source-snippet">${escapeHtml(s.snippet)}</div>
+                        </div>
+                    `;
+                }).join('');
+
+                sourcesHtml = `
+                    <div class="mt-3 pt-2 border-top">
+                        <button class="btn btn-sm btn-link text-decoration-none text-primary fw-semibold p-0 d-flex align-items-center gap-1"
+                                type="button" data-bs-toggle="collapse" data-bs-target="#${collapseId}" aria-expanded="true">
+                            <i class="bi bi-journal-bookmark-fill"></i>
+                            <span>Nguồn trích dẫn thực tế (${data.sources.length} đoạn trích)</span>
+                            <i class="bi bi-chevron-down small"></i>
+                        </button>
+                        <div class="collapse show mt-2" id="${collapseId}">
+                            ${sourceItems}
+                        </div>
+                    </div>
+                `;
+            }
+
+            row.innerHTML = `
+                <div class="avatar-bubble avatar-ai shadow-sm">
+                    <i class="bi bi-stars"></i>
+                </div>
+                <div class="message-bubble shadow-sm">
+                    <div class="d-flex align-items-center justify-content-between mb-2 gap-3">
+                        <div class="d-flex align-items-center flex-wrap gap-1">
+                            ${modeBadge}
+                            <span class="badge bg-light text-secondary border small">${escapeHtml(data.provider || 'AI')}</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <small class="text-muted" style="font-size: 0.72rem;">${data.timestamp || ''}</small>
+                            <button type="button" class="btn btn-sm btn-link text-muted p-0 tts-btn" title="Nghe câu trả lời bằng tiếng Việt"
+                                    onclick="toggleSpeakAiReply(this)" data-raw="${escapeHtml(data.reply)}">
+                                <i class="bi bi-volume-up"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-link text-muted p-0" title="Sao chép câu trả lời"
+                                    onclick="copyAiReply(this)" data-raw="${escapeHtml(data.reply)}">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="ai-text-content">
+                        ${renderMarkdownWithCitations(data.reply, msgUniqueId, collapseId)}
+                    </div>
+                    ${sourcesHtml}
+                </div>
+            `;
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function copyAiReply(btn) {
+            const raw = btn.getAttribute('data-raw') || '';
+            navigator.clipboard.writeText(raw).then(() => {
+                const icon = btn.querySelector('i');
+                icon.className = 'bi bi-check2 text-success';
+                setTimeout(() => { icon.className = 'bi bi-clipboard'; }, 1500);
+            });
+        }
+
+        function scrollToCitation(msgUniqueId, collapseId, citNum) {
+            const collapseEl = document.getElementById(collapseId);
+            if (collapseEl && !collapseEl.classList.contains('show')) {
+                new bootstrap.Collapse(collapseEl, { toggle: true });
+            }
+            const card = document.getElementById(`src_${msgUniqueId}_${citNum}`);
+            if (card) {
+                card.classList.add('expanded', 'highlight-flash');
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                setTimeout(() => card.classList.remove('highlight-flash'), 1800);
+            }
+        }
+
+        function openDocumentPreview(docId) {
+            if (!docId) return;
+            const modalEl = document.getElementById('docPreviewModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            const body = document.getElementById('docPreviewBody');
+            const titleEl = document.getElementById('docPreviewTitle');
+            const downloadBtn = document.getElementById('docPreviewDownloadBtn');
+            const askBtn = document.getElementById('docPreviewAskBtn');
+            const quizBtn = document.getElementById('docPreviewQuizBtn');
+
+            body.innerHTML = `<div class="text-center py-3 text-muted">Đang tải thông tin tài liệu...</div>`;
+            downloadBtn.href = `/documents/download/${docId}`;
+            askBtn.onclick = function () {
+                modal.hide();
+                focusDocumentRag(docId);
+            };
+            if (quizBtn) {
+                quizBtn.onclick = function () {
+                    modal.hide();
+                    openQuizSetupModal(docId);
+                };
+            }
+            modal.show();
+
+            fetch(`/documents/${docId}`)
+                .then(res => res.json())
+                .then(doc => {
+                    titleEl.innerHTML = `<i class="bi bi-file-earmark-text text-primary"></i> <span>${escapeHtml(doc.title)}</span>`;
+                    body.innerHTML = `
+                        <div class="mb-2">
+                            <span class="badge bg-primary-subtle text-primary border me-1">${escapeHtml(doc.fileExtension || 'FILE')}</span>
+                            <span class="badge bg-light text-secondary border me-1">${escapeHtml(doc.category || 'Tài liệu')}</span>
+                            <span class="badge bg-light text-dark border">${escapeHtml(doc.fileSizeFormatted || '')}</span>
+                        </div>
+                        <p class="text-secondary small mb-3">${escapeHtml(doc.description || 'Không có mô tả.')}</p>
+                        <div class="bg-light rounded-3 p-3 small">
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Tác giả / Giảng viên:</span>
+                                <span class="fw-semibold text-dark">${escapeHtml(doc.author || 'Chưa cập nhật')}</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-1">
+                                <span class="text-muted">Tên tệp gốc:</span>
+                                <span class="text-dark">${escapeHtml(doc.fileName || '')}</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Từ khóa:</span>
+                                <span class="text-primary">${escapeHtml(doc.tags || '')}</span>
+                            </div>
+                        </div>
+                    `;
+                })
+                .catch(() => {
+                    body.innerHTML = `<div class="text-danger small">Không thể tải thông tin chi tiết của tài liệu này.</div>`;
+                });
+        }
+
+        function focusDocumentRag(docId) {
+            document.getElementById('modeRag').checked = true;
+            document.getElementById('ragDocumentSelector').classList.remove('d-none');
+            const select = document.getElementById('selectedDocumentId');
+            if (select) {
+                select.value = String(docId);
+            }
+            updateQuickPrompts();
+            document.getElementById('userMessageInput').focus();
+        }
+
+        function handleSaveConfig(event) {
+            event.preventDefault();
+            const provider = document.querySelector('input[name="providerRadio"]:checked').value;
+            const geminiModel = document.getElementById('geminiModelSelect').value;
+            const groqModel = document.getElementById('groqModelSelect').value;
+
+            const alertBox = document.getElementById('configAlertBox');
+            const saveBtn = document.getElementById('saveConfigBtn');
+            saveBtn.disabled = true;
+
+            fetch('/api/ai/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    provider: provider,
+                    geminiModel: geminiModel,
+                    groqModel: groqModel
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                saveBtn.disabled = false;
+                if (data.success) {
+                    alertBox.className = 'alert alert-success small py-2 mb-0';
+                    alertBox.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i> ${data.message}`;
+                    alertBox.classList.remove('d-none');
+
+                    document.getElementById('activeProviderBadge').textContent = data.providerName;
+                    document.getElementById('activeModelBadge').textContent = data.activeModel;
+
+                    const picker = document.getElementById('quickModelPicker');
+                    if (picker) {
+                        picker.value = `${data.provider}:${data.activeModel}`;
+                    }
+
+                    const statusInd = document.getElementById('statusIndicator');
+                    const statusText = document.getElementById('statusText');
+                    if (data.hasKey) {
+                        statusInd.className = 'text-success';
+                        statusText.textContent = 'Trực tuyến';
+                    } else {
+                        statusInd.className = 'text-secondary';
+                        statusText.textContent = 'Tạm gián đoạn';
+                    }
+
+                    setTimeout(() => {
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('aiConfigModal'));
+                        if (modal) modal.hide();
+                        alertBox.classList.add('d-none');
+                    }, 900);
+                }
+            })
+            .catch(err => {
+                saveBtn.disabled = false;
+                alertBox.className = 'alert alert-danger small py-2 mb-0';
+                alertBox.textContent = 'Lỗi lưu cấu hình: ' + err.message;
+                alertBox.classList.remove('d-none');
+            });
+        }
+
+        function renderMarkdownWithCitations(text, msgUniqueId, collapseId) {
+            if (!text) return '';
+
+            // 1. Tách các biểu thức toán học LaTeX ($$...$$ và $...$) trước khi Marked.js xử lý
+            // để tránh việc ký tự _ hoặc * bên trong công thức (như $E_d$, $Q^*$) bị biến dạng hoặc hiện nguyên dấu $
+            const mathTokens = [];
+            let processed = text.replace(/\$\$([\s\S]+?)\$\$/g, function (match, expr) {
+                const idx = mathTokens.length;
+                mathTokens.push({ expr: expr.trim(), display: true });
+                return `@@MATH_TOKEN_${idx}@@`;
+            });
+            processed = processed.replace(/\$([^\$\n]+?)\$/g, function (match, expr) {
+                // Tránh nhầm với số tiền dạng $5 hoặc $100
+                if (/^\d+(\.\d+)?\s*/.test(expr) && !/[a-zA-Z\\^_=]/.test(expr)) {
+                    return match;
+                }
+                const idx = mathTokens.length;
+                mathTokens.push({ expr: expr.trim(), display: false });
+                return `@@MATH_TOKEN_${idx}@@`;
+            });
+
+            let html = '';
+            if (window.marked && window.DOMPurify) {
+                marked.setOptions({ breaks: true, gfm: true });
+                const rawHtml = marked.parse(processed);
+                html = DOMPurify.sanitize(rawHtml);
+            } else {
+                html = fallbackFormatMarkdown(processed);
+            }
+
+            // 2. Khôi phục và render công thức toán học bằng KaTeX (hoặc HTML sub/sup sạch đẹp)
+            html = html.replace(/@@MATH_TOKEN_(\d+)@@/g, function (match, idxStr) {
+                const item = mathTokens[parseInt(idxStr, 10)];
+                if (!item) return match;
+                if (window.katex) {
+                    try {
+                        return katex.renderToString(item.expr, {
+                            displayMode: item.display,
+                            throwOnError: false
+                        });
+                    } catch (e) {
+                        return formatSimpleMathFallback(item.expr);
+                    }
+                }
+                return formatSimpleMathFallback(item.expr);
+            });
+
+            // 3. Chuyển [1], [2]... thành huy hiệu trích dẫn tương tác
+            html = html.replace(/\[(\d{1,2})\]/g, function (match, num) {
+                return `<span class="citation-ref" onclick="scrollToCitation('${msgUniqueId}', '${collapseId}', ${num})" title="Xem đoạn trích [${num}]">[${num}]</span>`;
+            });
+            return html;
+        }
+
+        function formatSimpleMathFallback(expr) {
+            let safe = escapeHtml(expr);
+            safe = safe.replace(/_\{([^}]+)\}/g, '<sub>$1</sub>');
+            safe = safe.replace(/_([a-zA-Z0-9]+)/g, '<sub>$1</sub>');
+            safe = safe.replace(/\^\{([^}]+)\}/g, '<sup>$1</sup>');
+            safe = safe.replace(/\^([a-zA-Z0-9\*]+)/g, '<sup>$1</sup>');
+            return `<span class="fw-semibold">${safe}</span>`;
+        }
+
+        function fallbackFormatMarkdown(text) {
+            let escaped = escapeHtml(text);
+            escaped = escaped.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            escaped = escaped.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+            escaped = escaped.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+            escaped = escaped.replace(/^#\s+(.*)$/gm, '<h1>$1</h1>');
+            escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            escaped = escaped.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+            escaped = escaped.replace(/\n\n/g, '</p><p>');
+            escaped = escaped.replace(/\n/g, '<br>');
+            return '<p>' + escaped + '</p>';
+        }
+
+        function escapeHtml(string) {
+            if (string === null || string === undefined) return '';
+            const entityMap = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            };
+            return String(string).replace(/[&<>"']/g, function (s) {
+                return entityMap[s];
+            });
+        }
+
+        /* ===================================================================
+           0. Thông báo hệ thống qua Bootstrap Modal (Thay thế window.alert)
+           =================================================================== */
+        function showAppAlert(title, message, iconClass = 'bi-info-circle-fill text-primary') {
+            document.getElementById('appAlertTitle').textContent = title || 'Thông báo';
+            document.getElementById('appAlertMessage').textContent = message || '';
+            const iconEl = document.getElementById('appAlertIcon');
+            if (iconEl) {
+                iconEl.className = 'bi ' + iconClass;
+            }
+            const modalEl = document.getElementById('appAlertModal');
+            if (modalEl) {
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
+            }
+        }
+
+        /* ===================================================================
+           1. Nhận diện giọng nói Tiếng Việt (Web Speech API - SpeechRecognition)
+           =================================================================== */
+        let speechRecognition = null;
+        let isRecordingVoice = false;
+
+        function toggleVoiceRecording() {
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) {
+                showAppAlert("Không hỗ trợ Micro", "Trình duyệt của bạn chưa hỗ trợ nhận diện giọng nói (Web Speech API). Vui lòng sử dụng Google Chrome hoặc Microsoft Edge.", "bi-mic-mute-fill text-warning");
+                return;
+            }
+
+            const micBtn = document.getElementById('voiceInputBtn');
+            const input = document.getElementById('userMessageInput');
+
+            if (isRecordingVoice) {
+                if (speechRecognition) {
+                    speechRecognition.stop();
+                }
+                return;
+            }
+
+            try {
+                speechRecognition = new SpeechRec();
+                speechRecognition.lang = 'vi-VN';
+                speechRecognition.continuous = false;
+                speechRecognition.interimResults = true;
+                speechRecognition.maxAlternatives = 1;
+
+                let initialText = input.value;
+                if (initialText && !initialText.endsWith(' ')) {
+                    initialText += ' ';
+                }
+
+                speechRecognition.onstart = function () {
+                    isRecordingVoice = true;
+                    micBtn.classList.add('recording');
+                    micBtn.title = "Đang lắng nghe... Bấm để dừng";
+                    input.placeholder = "Đang lắng nghe giọng nói tiếng Việt của bạn...";
+                };
+
+                speechRecognition.onresult = function (event) {
+                    let transcript = '';
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        transcript += event.results[i][0].transcript;
+                    }
+                    input.value = initialText + transcript;
+                    input.style.height = 'auto';
+                    input.style.height = Math.min(input.scrollHeight, 130) + 'px';
+                };
+
+                speechRecognition.onerror = function (event) {
+                    console.warn("Speech recognition error:", event.error);
+                    stopVoiceRecordingUI();
+                    if (event.error === 'not-allowed') {
+                        showAppAlert("Quyền truy cập Micro", "Quyền sử dụng Micro bị chặn trên trình duyệt. Vui lòng cấp quyền Micro trong thanh địa chỉ URL để sử dụng tính năng này.", "bi-shield-exclamation text-danger");
+                    }
+                };
+
+                speechRecognition.onend = function () {
+                    stopVoiceRecordingUI();
+                    input.focus();
+                };
+
+                speechRecognition.start();
+            } catch (err) {
+                console.error("Cannot start speech recognition:", err);
+                stopVoiceRecordingUI();
+            }
+        }
+
+        function stopVoiceRecordingUI() {
+            isRecordingVoice = false;
+            const micBtn = document.getElementById('voiceInputBtn');
+            if (micBtn) {
+                micBtn.classList.remove('recording');
+                micBtn.title = "Nhận diện giọng nói Tiếng Việt";
+            }
+            const input = document.getElementById('userMessageInput');
+            if (input) {
+                input.placeholder = "Đặt câu hỏi hoặc bấm mic để nói tiếng Việt... (Enter để gửi, Shift + Enter để xuống dòng)";
+            }
+        }
+
+        /* ===================================================================
+           2. Đọc phản hồi bằng giọng Tiếng Việt (Web Speech API - SpeechSynthesis)
+           =================================================================== */
+        let activeTtsButton = null;
+
+        function toggleSpeakAiReply(btn) {
+            if (!('speechSynthesis' in window)) {
+                showAppAlert("Không hỗ trợ Text-to-Speech", "Trình duyệt của bạn không hỗ trợ tính năng đọc văn bản thành giọng nói.", "bi-volume-mute-fill text-warning");
+                return;
+            }
+
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
+                if (activeTtsButton === btn) {
+                    resetTtsButton(btn);
+                    activeTtsButton = null;
+                    return;
+                }
+                if (activeTtsButton) {
+                    resetTtsButton(activeTtsButton);
+                }
+            }
+
+            const rawText = btn.getAttribute('data-raw') || '';
+            const cleanText = cleanTextForSpeech(rawText);
+            if (!cleanText) return;
+
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.lang = 'vi-VN';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            const voices = window.speechSynthesis.getVoices();
+            const viVoice = voices.find(v => v.lang.includes('vi') || v.lang.includes('VI'));
+            if (viVoice) {
+                utterance.voice = viVoice;
+            }
+
+            utterance.onstart = function () {
+                activeTtsButton = btn;
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    icon.className = 'bi bi-stop-circle-fill text-danger';
+                }
+                btn.title = "Dừng đọc";
+            };
+
+            utterance.onend = function () {
+                resetTtsButton(btn);
+                activeTtsButton = null;
+            };
+
+            utterance.onerror = function () {
+                resetTtsButton(btn);
+                activeTtsButton = null;
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function resetTtsButton(btn) {
+            if (!btn) return;
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.className = 'bi bi-volume-up';
+            }
+            btn.title = "Nghe câu trả lời bằng tiếng Việt";
+        }
+
+        function cleanTextForSpeech(text) {
+            if (!text) return '';
+            let cleaned = text
+                .replace(/```[\s\S]*?```/g, ' [khối mã lệnh] ')
+                .replace(/`([^`]+)`/g, '$1')
+                .replace(/\[\d+\]/g, '')
+                .replace(/[#*_~>]/g, ' ')
+                .replace(/\$([^$]+)\$/g, '$1')
+                .replace(/\s+/g, ' ')
+                .trim();
+            return cleaned;
+        }
+
+        /* ===================================================================
+           3. Quiz Trắc Nghiệm Tương Tác từ Tài liệu (Interactive RAG Quiz)
+           =================================================================== */
+        let currentQuizData = null;
+        let currentQuestionIdx = 0;
+        let quizUserAnswers = [];
+        let currentQuizScore = 0;
+
+        function openQuizSetupModal(preselectedDocId) {
+            const modalEl = document.getElementById('aiQuizModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
+            const docSelect = document.getElementById('quizDocSelect');
+            if (preselectedDocId) {
+                docSelect.value = String(preselectedDocId);
+            } else {
+                const currentDoc = document.getElementById('selectedDocumentId');
+                if (currentDoc && currentDoc.value) {
+                    docSelect.value = currentDoc.value;
+                }
+            }
+
+            showQuizSetupScreen();
+            modal.show();
+        }
+
+        function showQuizSetupScreen() {
+            document.getElementById('quizViewSetup').classList.remove('d-none');
+            document.getElementById('quizSetupFooter').classList.remove('d-none');
+            document.getElementById('quizViewRunner').classList.add('d-none');
+            document.getElementById('quizRunnerFooter').classList.add('d-none');
+            document.getElementById('quizViewResult').classList.add('d-none');
+            document.getElementById('quizResultFooter').classList.add('d-none');
+            const alertBox = document.getElementById('quizSetupAlert');
+            if (alertBox) alertBox.classList.add('d-none');
+        }
+
+        function startQuizGeneration() {
+            const docSelect = document.getElementById('quizDocSelect');
+            const docId = docSelect.value ? parseInt(docSelect.value) : null;
+            const topic = document.getElementById('quizTopicInput').value.trim();
+            const count = parseInt(document.getElementById('quizCountSelect').value, 10);
+            const difficulty = document.getElementById('quizDifficultySelect').value;
+
+            const startBtn = document.getElementById('startQuizBtn');
+            const alertBox = document.getElementById('quizSetupAlert');
+            startBtn.disabled = true;
+            startBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Đang tạo câu hỏi trắc nghiệm...`;
+            alertBox.classList.add('d-none');
+
+            fetch('/api/ai/quiz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    documentId: docId,
+                    topic: topic,
+                    questionCount: count,
+                    difficulty: difficulty
+                })
+            })
+            .then(res => {
+                if (res.status === 401) {
+                    window.location.href = '/login';
+                    throw new Error('Phiên đăng nhập đã hết hạn');
+                }
+                return res.json();
+            })
+            .then(data => {
+                startBtn.disabled = false;
+                startBtn.innerHTML = `<i class="bi bi-play-circle-fill me-1"></i> Bắt đầu tạo bài Quiz`;
+
+                if (!data.success) {
+                    alertBox.className = 'alert alert-danger small py-2 mb-0';
+                    alertBox.textContent = data.errorMessage || 'Không thể tạo bài Quiz.';
+                    alertBox.classList.remove('d-none');
+                    return;
+                }
+
+                currentQuizData = data;
+                currentQuestionIdx = 0;
+                quizUserAnswers = new Array(data.questions.length).fill(null);
+                currentQuizScore = 0;
+
+                // Chuyển sang màn hình làm bài Quiz
+                document.getElementById('quizViewSetup').classList.add('d-none');
+                document.getElementById('quizSetupFooter').classList.add('d-none');
+                document.getElementById('quizViewRunner').classList.remove('d-none');
+                document.getElementById('quizRunnerFooter').classList.remove('d-none');
+                document.getElementById('quizRunnerDocBadge').textContent = data.documentTitle || 'Tài liệu học tập';
+
+                renderQuizQuestion();
+            })
+            .catch(err => {
+                startBtn.disabled = false;
+                startBtn.innerHTML = `<i class="bi bi-play-circle-fill me-1"></i> Bắt đầu tạo bài Quiz`;
+                alertBox.className = 'alert alert-danger small py-2 mb-0';
+                alertBox.textContent = 'Lỗi kết nối máy chủ: ' + err.message;
+                alertBox.classList.remove('d-none');
+            });
+        }
+
+        function renderQuizQuestion() {
+            if (!currentQuizData || !currentQuizData.questions || currentQuizData.questions.length === 0) return;
+            const q = currentQuizData.questions[currentQuestionIdx];
+            const total = currentQuizData.questions.length;
+
+            document.getElementById('quizRunnerProgressBadge').textContent = `Câu ${currentQuestionIdx + 1} / ${total}`;
+            document.getElementById('quizRunnerScoreBadge').textContent = `Điểm: ${currentQuizScore} / ${total}`;
+            const pct = Math.round(((currentQuestionIdx + 1) / total) * 100);
+            document.getElementById('quizRunnerProgressBar').style.width = pct + '%';
+
+            document.getElementById('quizQuestionText').textContent = q.question;
+
+            // Render options
+            const letters = ['A', 'B', 'C', 'D'];
+            const container = document.getElementById('quizOptionsContainer');
+            container.innerHTML = q.options.map((opt, idx) => `
+                <div class="quiz-option-card" id="quiz_opt_${idx}" onclick="selectQuizOption(${idx})">
+                    <span class="quiz-option-letter">${letters[idx] || (idx + 1)}</span>
+                    <span class="quiz-option-text flex-fill">${escapeHtml(opt)}</span>
+                </div>
+            `).join('');
+
+            // Hide explanation
+            document.getElementById('quizExplanationBox').classList.add('d-none');
+
+            // Setup next button
+            const nextBtn = document.getElementById('quizNextBtn');
+            nextBtn.disabled = true;
+            if (currentQuestionIdx === total - 1) {
+                nextBtn.innerHTML = `<span>Xem kết quả</span> <i class="bi bi-trophy-fill ms-1"></i>`;
+            } else {
+                nextBtn.innerHTML = `<span>Câu tiếp theo</span> <i class="bi bi-arrow-right ms-1"></i>`;
+            }
+        }
+
+        function selectQuizOption(chosenIdx) {
+            if (quizUserAnswers[currentQuestionIdx] !== null) return;
+            quizUserAnswers[currentQuestionIdx] = chosenIdx;
+
+            const q = currentQuizData.questions[currentQuestionIdx];
+            const isCorrect = (chosenIdx === q.correctIndex);
+
+            const cards = document.querySelectorAll('.quiz-option-card');
+            cards.forEach(c => c.classList.add('disabled'));
+
+            const chosenCard = document.getElementById('quiz_opt_' + chosenIdx);
+            const correctCard = document.getElementById('quiz_opt_' + q.correctIndex);
+
+            if (isCorrect) {
+                currentQuizScore++;
+                if (chosenCard) chosenCard.classList.add('selected-correct');
+                document.getElementById('quizExplanationHeader').innerHTML = `
+                    <i class="bi bi-check-circle-fill text-success"></i>
+                    <span class="text-success">Chính xác!</span>
+                `;
+            } else {
+                if (chosenCard) chosenCard.classList.add('selected-wrong');
+                if (correctCard) correctCard.classList.add('correct-highlight');
+                document.getElementById('quizExplanationHeader').innerHTML = `
+                    <i class="bi bi-x-circle-fill text-danger"></i>
+                    <span class="text-danger">Chưa chính xác! Đáp án đúng là ${['A','B','C','D'][q.correctIndex]}.</span>
+                `;
+            }
+
+            document.getElementById('quizRunnerScoreBadge').textContent = `Điểm: ${currentQuizScore} / ${currentQuizData.questions.length}`;
+
+            // Show explanation
+            const explBox = document.getElementById('quizExplanationBox');
+            document.getElementById('quizExplanationText').textContent = q.explanation || 'Không có giải thích chi tiết.';
+            const srcSpan = document.querySelector('#quizSourceReference span');
+            if (srcSpan) srcSpan.textContent = q.sourceReference || currentQuizData.documentTitle;
+            explBox.classList.remove('d-none');
+
+            document.getElementById('quizNextBtn').disabled = false;
+        }
+
+        function advanceQuizQuestion() {
+            if (currentQuestionIdx < currentQuizData.questions.length - 1) {
+                currentQuestionIdx++;
+                renderQuizQuestion();
+            } else {
+                showQuizResultScreen();
+            }
+        }
+
+        function showQuizResultScreen() {
+            document.getElementById('quizViewRunner').classList.add('d-none');
+            document.getElementById('quizRunnerFooter').classList.add('d-none');
+            document.getElementById('quizViewResult').classList.remove('d-none');
+            document.getElementById('quizResultFooter').classList.remove('d-none');
+
+            const total = currentQuizData.questions.length;
+            const score10 = ((currentQuizScore / total) * 10).toFixed(1);
+            const pct = Math.round((currentQuizScore / total) * 100);
+
+            document.getElementById('quizResultDocTitle').textContent = currentQuizData.quizTitle || 'Ôn tập tài liệu';
+            document.getElementById('quizFinalScore').textContent = `${score10} / 10`;
+            document.getElementById('quizFinalAccuracy').textContent = `Đúng ${currentQuizScore} / ${total} câu (${pct}%)`;
+
+            let feedback = "Bạn đã hoàn thành bài ôn tập!";
+            if (pct >= 90) {
+                feedback = "Xuất sắc! Bạn đã nắm vững toàn bộ kiến thức trọng tâm của tài liệu.";
+            } else if (pct >= 70) {
+                feedback = "Khá tốt! Bạn đã hiểu phần lớn nội dung, chỉ cần xem lại một số chi tiết nhỏ.";
+            } else if (pct >= 50) {
+                feedback = "Đạt yêu cầu. Hãy xem lại các câu trả lời sai bên dưới để củng cố kiến thức nhé.";
+            } else {
+                feedback = "Cần ôn tập thêm! Hãy đọc lại tài liệu hoặc dùng Trợ lý AI để giải đáp các phần chưa rõ.";
+            }
+            document.getElementById('quizFinalFeedback').textContent = feedback;
+
+            // Breakdown
+            const letters = ['A', 'B', 'C', 'D'];
+            const breakdownContainer = document.getElementById('quizResultBreakdown');
+            breakdownContainer.innerHTML = currentQuizData.questions.map((q, idx) => {
+                const userChoice = quizUserAnswers[idx];
+                const isCorrect = (userChoice === q.correctIndex);
+                const badge = isCorrect
+                    ? `<span class="badge bg-success-subtle text-success border"><i class="bi bi-check-lg me-1"></i>Đúng</span>`
+                    : `<span class="badge bg-danger-subtle text-danger border"><i class="bi bi-x-lg me-1"></i>Sai (Bạn chọn ${letters[userChoice] || 'chưa chọn'}, đúng là ${letters[q.correctIndex]})</span>`;
+                return `
+                    <div class="border rounded-3 p-3 bg-white">
+                        <div class="d-flex align-items-center justify-content-between mb-1">
+                            <span class="fw-bold text-dark">Câu ${idx + 1}: ${escapeHtml(q.question)}</span>
+                            ${badge}
+                        </div>
+                        <div class="text-secondary small mt-1">
+                            <i class="bi bi-arrow-return-right me-1 text-primary"></i> ${escapeHtml(q.explanation || '')}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function retakeCurrentQuiz() {
+            if (!currentQuizData) return;
+            currentQuestionIdx = 0;
+            quizUserAnswers = new Array(currentQuizData.questions.length).fill(null);
+            currentQuizScore = 0;
+
+            document.getElementById('quizViewResult').classList.add('d-none');
+            document.getElementById('quizResultFooter').classList.add('d-none');
+            document.getElementById('quizViewRunner').classList.remove('d-none');
+            document.getElementById('quizRunnerFooter').classList.remove('d-none');
+
+            renderQuizQuestion();
+        }
+    </script>
+</body>
+</html>

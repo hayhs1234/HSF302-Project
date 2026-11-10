@@ -1,5 +1,6 @@
 package com.studyhub.config;
 
+import com.studyhub.ai.service.DocumentIndexingService;
 import com.studyhub.model.Document;
 import com.studyhub.model.Subject;
 import com.studyhub.model.User;
@@ -7,8 +8,11 @@ import com.studyhub.repository.DocumentRepository;
 import com.studyhub.repository.SubjectRepository;
 import com.studyhub.service.UserService;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 
 @Component
@@ -17,17 +21,28 @@ public class DataInitializer implements CommandLineRunner {
     private final SubjectRepository subjectRepository;
     private final DocumentRepository documentRepository;
     private final UserService userService;
+    private final SampleDocumentFileGenerator sampleFileGenerator;
+    private final DocumentIndexingService documentIndexingService;
+    private final JdbcTemplate jdbcTemplate;
 
     public DataInitializer(SubjectRepository subjectRepository,
                            DocumentRepository documentRepository,
-                           UserService userService) {
+                           UserService userService,
+                           SampleDocumentFileGenerator sampleFileGenerator,
+                           DocumentIndexingService documentIndexingService,
+                           JdbcTemplate jdbcTemplate) {
         this.subjectRepository = subjectRepository;
         this.documentRepository = documentRepository;
         this.userService = userService;
+        this.sampleFileGenerator = sampleFileGenerator;
+        this.documentIndexingService = documentIndexingService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Override
     public void run(String... args) {
+        ensureAccentInsensitiveCollation();
+
         // 1. Khởi tạo tài khoản mẫu (sinh viên có thể đăng nhập ngay hoặc đăng ký mới)
         User student = userService.getOrCreateDefaultUser("Nguyễn Văn An", "student@gmail.com", "123456");
         User secondStudent = userService.getOrCreateDefaultUser("Trần Mai Anh", "maianh@gmail.com", "123456");
@@ -180,6 +195,26 @@ public class DataInitializer implements CommandLineRunner {
                 true, 380, 1420, prj, 14, student,
                 false, null, null
         );
+
+        // 4. Đảm bảo tất cả các tài liệu đều được trích xuất và lập chỉ mục RAG
+        documentIndexingService.indexAllPendingDocuments();
+    }
+
+    private void ensureAccentInsensitiveCollation() {
+        String[] alterSqls = {
+                "ALTER TABLE documents ALTER COLUMN title NVARCHAR(255) COLLATE Latin1_General_CI_AI NOT NULL",
+                "ALTER TABLE documents ALTER COLUMN author NVARCHAR(150) COLLATE Latin1_General_CI_AI NULL",
+                "ALTER TABLE documents ALTER COLUMN description NVARCHAR(4000) COLLATE Latin1_General_CI_AI NULL",
+                "ALTER TABLE documents ALTER COLUMN tags NVARCHAR(255) COLLATE Latin1_General_CI_AI NULL",
+                "ALTER TABLE documents ALTER COLUMN shared_by_name NVARCHAR(150) COLLATE Latin1_General_CI_AI NULL",
+                "ALTER TABLE documents ALTER COLUMN shared_note NVARCHAR(500) COLLATE Latin1_General_CI_AI NULL"
+        };
+        for (String sql : alterSqls) {
+            try {
+                jdbcTemplate.execute(sql);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private Subject getOrCreateSubject(String code, String name, String description, String color, String icon) {
@@ -194,6 +229,8 @@ public class DataInitializer implements CommandLineRunner {
                               String fileUrl, boolean isFavorite, int downloadCount, int viewCount,
                               Subject subject, int daysAgo, User user,
                               boolean isShared, String sharedByName, String sharedNote) {
+        String physicalPath = sampleFileGenerator.ensureSampleFileExists(fileName, ext);
+
         if (!documentRepository.existsByTitle(title)) {
             Document doc = new Document(
                     title, fileName, ext, sizeFormatted, sizeBytes,
@@ -208,13 +245,16 @@ public class DataInitializer implements CommandLineRunner {
                 doc.setSharedNote(sharedNote);
             }
             doc.setFileUrl(fileUrl);
+            doc.setFilePath(physicalPath);
             doc.setCreatedAt(LocalDateTime.now().minusDays(daysAgo));
             doc.setUpdatedAt(LocalDateTime.now().minusDays(daysAgo));
-            documentRepository.save(doc);
+            Document savedDoc = documentRepository.save(doc);
+            documentIndexingService.indexDocument(savedDoc);
         } else {
-            // Nếu tài liệu đã có sẵn từ trước, cập nhật thêm user và fileUrl nếu đang trống (dùng findFirstByTitle tránh lỗi NonUniqueResultException khi nhiều người dùng cùng kéo tài liệu về kho)
+            // Nếu tài liệu đã có sẵn từ trước, cập nhật thêm user, fileUrl và filePath nếu đang trống
             documentRepository.findFirstByTitle(title).ifPresent(existing -> {
                 boolean changed = false;
+                boolean needsReindex = false;
                 if (existing.getUser() == null && user != null) {
                     existing.setUser(user);
                     changed = true;
@@ -234,8 +274,19 @@ public class DataInitializer implements CommandLineRunner {
                     existing.setDescription(description);
                     changed = true;
                 }
+                boolean hasValidFilePath = existing.getFilePath() != null
+                        && !existing.getFilePath().isBlank()
+                        && Files.exists(Paths.get(existing.getFilePath()));
+                if (!hasValidFilePath && physicalPath != null) {
+                    existing.setFilePath(physicalPath);
+                    changed = true;
+                    needsReindex = true;
+                }
                 if (changed) {
-                    documentRepository.save(existing);
+                    existing = documentRepository.save(existing);
+                }
+                if (needsReindex || !documentIndexingService.isDocumentIndexed(existing.getId())) {
+                    documentIndexingService.indexDocument(existing);
                 }
             });
         }

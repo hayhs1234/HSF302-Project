@@ -28,10 +28,14 @@ public class AuthInterceptor implements HandlerInterceptor {
 
         // Xử lý khi chưa đăng nhập
         String requestedWith = request.getHeader("X-Requested-With");
-        if ("XMLHttpRequest".equalsIgnoreCase(requestedWith) || path.contains("-ajax")) {
+        String accept = request.getHeader("Accept");
+        if ("XMLHttpRequest".equalsIgnoreCase(requestedWith)
+                || path.startsWith("/api/")
+                || path.contains("-ajax")
+                || (accept != null && accept.contains("application/json"))) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"success\":false,\"message\":\"Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập. Vui lòng đăng nhập lại.\"}");
+            response.getWriter().write("{\"success\":false,\"reply\":\"Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập. Vui lòng đăng nhập lại.\",\"message\":\"Phiên làm việc đã hết hạn hoặc bạn chưa đăng nhập. Vui lòng đăng nhập lại.\"}");
             return false;
         }
 

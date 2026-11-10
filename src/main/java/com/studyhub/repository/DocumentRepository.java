@@ -103,4 +103,13 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     @Query("SELECT COUNT(DISTINCT d.subject.id) FROM Document d WHERE d.subject IS NOT NULL")
     long countDistinctSubjectsWithDocuments();
+
+    @Query("SELECT d FROM Document d LEFT JOIN FETCH d.subject s WHERE " +
+           "(d.user.id = :userId OR (d.user IS NULL AND :userId = 1) OR d.isShared = true) " +
+           "ORDER BY d.createdAt DESC")
+    List<Document> findAccessibleByUser(@Param("userId") Long userId);
+
+    @Query("SELECT d FROM Document d LEFT JOIN FETCH d.subject s WHERE d.id = :docId AND " +
+           "(d.user.id = :userId OR (d.user IS NULL AND :userId = 1) OR d.isShared = true)")
+    Optional<Document> findAccessibleByIdAndUser(@Param("docId") Long docId, @Param("userId") Long userId);
 }
