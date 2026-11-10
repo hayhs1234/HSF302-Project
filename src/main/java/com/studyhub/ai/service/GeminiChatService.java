@@ -103,7 +103,7 @@ public class GeminiChatService implements AiChatService {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(requestUrl))
                 .header("Content-Type", "application/json; charset=UTF-8")
-                .timeout(Duration.ofSeconds(25))
+                .timeout(Duration.ofSeconds(35))
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                 .build();
 
