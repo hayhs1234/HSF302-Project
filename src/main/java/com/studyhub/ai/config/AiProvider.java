@@ -2,7 +2,7 @@ package com.studyhub.ai.config;
 
 public enum AiProvider {
     GROQ("Groq Cloud", "qwen/qwen3.8-27b"),
-    GEMINI("Google Gemini", "gemini-3.8-flash");
+    GEMINI("Google Gemini", "gemini-3.5-flash-lite");
 
     private final String displayName;
     private final String defaultModel;

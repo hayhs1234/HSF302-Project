@@ -127,6 +127,27 @@ public class GeminiChatService implements AiChatService {
             throw new RuntimeException("Google Gemini không trả về nội dung phản hồi hợp lệ.");
         }
 
+        if (status == 503 && !"gemini-3.5-flash-lite".equals(model)) {
+            log.warn("Gemini model '{}' đang quá tải (503 High Demand), tự động chuyển sang gemini-3.5-flash-lite...", model);
+            String fallbackUrl = String.format(GEMINI_API_URL, "gemini-3.5-flash-lite", apiKey);
+            HttpRequest fbReq = HttpRequest.newBuilder()
+                    .uri(URI.create(fallbackUrl))
+                    .header("Content-Type", "application/json; charset=UTF-8")
+                    .timeout(Duration.ofSeconds(20))
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+            try {
+                HttpResponse<String> fbResp = httpClient.send(fbReq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                if (fbResp.statusCode() == 200) {
+                    String extracted = extractReplyText(fbResp.body());
+                    if (extracted != null && !extracted.isBlank()) {
+                        return extracted;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         log.error("Gemini API Error [{}] on model {}: {}", status, model, response.body());
         throw new RuntimeException(parseFriendlyErrorMessage(response.body(), status));
     }
@@ -181,6 +202,9 @@ public class GeminiChatService implements AiChatService {
         }
         if (statusCode == 429) {
             return "Khóa API Google Gemini đang tạm chạm giới hạn số lượt gọi miễn phí trong phút. Vui lòng đợi khoảng 15-30 giây rồi thử lại.";
+        }
+        if (statusCode == 503) {
+            return "Máy chủ mô hình này hiện đang quá tải tạm thời (High demand từ Google). Bạn có thể chọn mô hình 'Gemini 3.5 Flash-Lite' để tiếp tục trò chuyện ngay lập tức.";
         }
         if (statusCode >= 500) {
             return "Máy chủ Google Gemini hiện đang quá tải tạm thời. Vui lòng thử lại sau vài giây.";

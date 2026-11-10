@@ -7,7 +7,7 @@ public class AiSessionConfig implements Serializable {
 
     private AiProvider provider = AiProvider.GROQ;
     private String geminiApiKey = "";
-    private String geminiModel = "gemini-3.8-flash";
+    private String geminiModel = "gemini-3.5-flash-lite";
     private String groqApiKey = "";
     private String groqModel = "qwen/qwen3.8-27b";
 
@@ -31,11 +31,11 @@ public class AiSessionConfig implements Serializable {
     }
 
     public String getGeminiModel() {
-        return geminiModel != null && !geminiModel.isBlank() ? geminiModel.trim() : "gemini-3.8-flash";
+        return geminiModel != null && !geminiModel.isBlank() ? geminiModel.trim() : "gemini-3.5-flash-lite";
     }
 
     public void setGeminiModel(String geminiModel) {
-        this.geminiModel = geminiModel != null && !geminiModel.isBlank() ? geminiModel.trim() : "gemini-3.8-flash";
+        this.geminiModel = geminiModel != null && !geminiModel.isBlank() ? geminiModel.trim() : "gemini-3.5-flash-lite";
     }
 
     public String getGroqApiKey() {
