@@ -127,8 +127,8 @@ public class GeminiChatService implements AiChatService {
             throw new RuntimeException("Google Gemini không trả về nội dung phản hồi hợp lệ.");
         }
 
-        if (status == 503 && !"gemini-3.5-flash-lite".equals(model)) {
-            log.warn("Gemini model '{}' đang quá tải (503 High Demand), tự động chuyển sang gemini-3.5-flash-lite...", model);
+        if ((status == 503 || status == 429) && !"gemini-3.5-flash-lite".equals(model)) {
+            log.warn("Gemini model '{}' gặp mã lỗi {} (quá tải hoặc hết hạn mức Pro), tự động chuyển sang gemini-3.5-flash-lite...", model, status);
             String fallbackUrl = String.format(GEMINI_API_URL, "gemini-3.5-flash-lite", apiKey);
             HttpRequest fbReq = HttpRequest.newBuilder()
                     .uri(URI.create(fallbackUrl))
