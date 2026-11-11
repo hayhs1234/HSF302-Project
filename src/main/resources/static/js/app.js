@@ -97,6 +97,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 // Action buttons
+                const aiChatBtn = document.getElementById('detailAiChatBtn');
+                if (aiChatBtn) {
+                    aiChatBtn.href = `/ai/chat?docId=${data.id}`;
+                }
                 document.getElementById('detailDownloadBtn').href = `/documents/download/${data.id}`;
                 document.getElementById('detailEditBtn').href = `/documents/edit/${data.id}`;
                 document.getElementById('detailDeleteForm').action = `/documents/delete/${data.id}`;

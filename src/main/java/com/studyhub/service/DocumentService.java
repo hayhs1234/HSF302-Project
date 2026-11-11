@@ -1,11 +1,13 @@
 package com.studyhub.service;
 
+import com.studyhub.ai.service.DocumentIndexingService;
 import com.studyhub.dto.DocumentFormDto;
 import com.studyhub.model.Document;
 import com.studyhub.model.Subject;
 import com.studyhub.model.User;
 import com.studyhub.repository.DocumentRepository;
 import com.studyhub.repository.SubjectRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -30,13 +32,23 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final SubjectRepository subjectRepository;
+    private final DocumentIndexingService documentIndexingService;
 
     @Value("${studyhub.upload.dir:./uploads/}")
     private String uploadDir;
 
-    public DocumentService(DocumentRepository documentRepository, SubjectRepository subjectRepository) {
+    public DocumentService(DocumentRepository documentRepository,
+                           SubjectRepository subjectRepository) {
+        this(documentRepository, subjectRepository, null);
+    }
+
+    @Autowired
+    public DocumentService(DocumentRepository documentRepository,
+                           SubjectRepository subjectRepository,
+                           DocumentIndexingService documentIndexingService) {
         this.documentRepository = documentRepository;
         this.subjectRepository = subjectRepository;
+        this.documentIndexingService = documentIndexingService;
     }
 
     public List<Document> searchDocuments(String keyword, Long subjectId, String category, Boolean favoriteOnly, String sortBy) {
@@ -89,7 +101,11 @@ public class DocumentService {
         doc.setIsShared(false);
         doc.setCreatedAt(LocalDateTime.now());
         doc.setUpdatedAt(LocalDateTime.now());
-        return documentRepository.save(doc);
+        Document saved = documentRepository.save(doc);
+        if (documentIndexingService != null) {
+            documentIndexingService.indexDocument(saved);
+        }
+        return saved;
     }
 
     public Document updateDocument(Long id, DocumentFormDto dto) throws IOException {
@@ -101,7 +117,11 @@ public class DocumentService {
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài liệu với ID: " + id));
         updateDocumentFields(doc, dto);
         doc.setUpdatedAt(LocalDateTime.now());
-        return documentRepository.save(doc);
+        Document saved = documentRepository.save(doc);
+        if (documentIndexingService != null) {
+            documentIndexingService.indexDocument(saved);
+        }
+        return saved;
     }
 
     public Document shareDocument(Long documentId, User user, String note) {
@@ -178,7 +198,11 @@ public class DocumentService {
         sharedDoc.setDownloadCount(sharedDoc.getDownloadCount() + 1);
         documentRepository.save(sharedDoc);
 
-        return documentRepository.save(copy);
+        Document savedCopy = documentRepository.save(copy);
+        if (documentIndexingService != null) {
+            documentIndexingService.indexDocument(savedCopy);
+        }
+        return savedCopy;
     }
 
     public void validateDocumentDto(DocumentFormDto dto) {
@@ -285,6 +309,9 @@ public class DocumentService {
     public boolean deleteDocument(Long id) {
         if (id == null || !documentRepository.existsById(id)) {
             return false;
+        }
+        if (documentIndexingService != null) {
+            documentIndexingService.deleteDocumentChunks(id);
         }
         documentRepository.deleteById(id);
         return true;

@@ -7,7 +7,7 @@
 ## 🛠️ Công Nghệ Sử Dụng
 
 - **Backend:** Java 17+, Spring Boot (Spring WebMVC, Spring Data JPA, Hibernate, Bean Validation)
-- **Database:** Microsoft SQL Server (kèm driver `mssql-jdbc` và hỗ trợ H2 profile để chạy thử nhanh)
+- **Database:** Microsoft SQL Server (kèm driver `mssql-jdbc`)
 - **Frontend / UI:** Thymeleaf + Bootstrap 5.3 + Bootstrap Icons (Giao diện tối giản, hiện đại, thoáng mắt, không rối chữ)
 - **Build tool:** Apache Maven
 
@@ -40,7 +40,6 @@ Assignment/
 │   │   │       └── SubjectService.java
 │   │   └── resources/
 │   │       ├── application.properties         # Cấu hình kết nối SQL Server
-│   │       ├── application-h2.properties      # Cấu hình H2 database (dùng test nhanh)
 │   │       ├── db/setup-sqlserver.sql         # Script tạo DB & chèn dữ liệu trên SQL Server
 │   │       ├── static/
 │   │       │   ├── css/style.css              # Giao diện tùy chỉnh gọn gàng, hiện đại
@@ -71,8 +70,7 @@ Assignment/
 
 ## 🚀 Hướng Dẫn Lệnh Chạy Ứng Dụng Local
 
-### 1. Chạy với SQL Server (Mặc định):
-Mở terminal tại thư mục dự án (`c:\FALL2026\HSF302\Assignment`) và chạy:
+Mở terminal tại thư mục dự án và chạy:
 
 ```powershell
 mvn spring-boot:run
@@ -82,17 +80,6 @@ Hoặc sau khi build file JAR:
 ```powershell
 mvn package -DskipTests
 java -jar target/studyhub-1.0.0.jar
-```
-
-### 2. Chạy thử nghiệm nhanh không cần bật SQL Server (H2 Profile):
-Nếu bạn muốn mở giao diện kiểm tra nhanh ngay lập tức mà chưa bật SQL Server:
-
-```powershell
-mvn spring-boot:run -Dspring-boot.run.profiles=h2
-```
-Hoặc với JAR:
-```powershell
-java -jar target/studyhub-1.0.0.jar --spring.profiles.active=h2
 ```
 
 ---

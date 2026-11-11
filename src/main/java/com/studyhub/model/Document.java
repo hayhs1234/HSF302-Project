@@ -93,6 +93,12 @@ public class Document {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
 
+    @Column(name = "index_status", length = 20)
+    private String indexStatus = "PENDING";
+
+    @Column(name = "indexed_at")
+    private LocalDateTime indexedAt;
+
     public Document() {
     }
 
@@ -299,6 +305,26 @@ public class Document {
 
     public void setSharedNote(String sharedNote) {
         this.sharedNote = sharedNote;
+    }
+
+    public String getIndexStatus() {
+        return indexStatus != null ? indexStatus : "PENDING";
+    }
+
+    public void setIndexStatus(String indexStatus) {
+        this.indexStatus = indexStatus;
+    }
+
+    public LocalDateTime getIndexedAt() {
+        return indexedAt;
+    }
+
+    public void setIndexedAt(LocalDateTime indexedAt) {
+        this.indexedAt = indexedAt;
+    }
+
+    public boolean isIndexedWithContent() {
+        return "INDEXED".equalsIgnoreCase(indexStatus);
     }
 
     public String getFormattedSharedDate() {

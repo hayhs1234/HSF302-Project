@@ -106,3 +106,68 @@ BEGIN
 END
 GO
 
+-- Bổ sung cột index_status và indexed_at phục vụ lập chỉ mục RAG
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('documents') AND name = 'index_status')
+BEGIN
+    ALTER TABLE documents ADD index_status VARCHAR(30) DEFAULT 'PENDING';
+END
+GO
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('documents') AND name = 'indexed_at')
+BEGIN
+    ALTER TABLE documents ADD indexed_at DATETIME2;
+END
+GO
+
+-- 5. Tạo bảng document_chunks (Lưu trữ phân đoạn văn bản phục vụ RAG BM25)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'document_chunks')
+BEGIN
+    CREATE TABLE document_chunks (
+        id BIGINT IDENTITY(1,1) PRIMARY KEY,
+        document_id BIGINT NOT NULL,
+        chunk_index INT NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        normalized_content NVARCHAR(MAX) NOT NULL,
+        token_count INT DEFAULT 0,
+        created_at DATETIME2 DEFAULT GETDATE(),
+        CONSTRAINT FK_document_chunks_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+    );
+    CREATE INDEX idx_doc_chunk_doc_id ON document_chunks(document_id);
+END
+GO
+
+-- 6. Tạo bảng chat_conversations (Phiên hội thoại AI đa lượt)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'chat_conversations')
+BEGIN
+    CREATE TABLE chat_conversations (
+        id BIGINT IDENTITY(1,1) PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        title NVARCHAR(255) NOT NULL,
+        mode VARCHAR(20) NOT NULL DEFAULT 'GENERAL',
+        selected_document_id BIGINT NULL,
+        created_at DATETIME2 DEFAULT GETDATE(),
+        updated_at DATETIME2 DEFAULT GETDATE(),
+        CONSTRAINT FK_chat_conversations_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX idx_chat_conv_user_updated ON chat_conversations(user_id, updated_at DESC);
+END
+GO
+
+-- 7. Tạo bảng chat_messages (Tin nhắn chi tiết & nguồn trích dẫn JSON trong phiên hội thoại)
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'chat_messages')
+BEGIN
+    CREATE TABLE chat_messages (
+        id BIGINT IDENTITY(1,1) PRIMARY KEY,
+        conversation_id BIGINT NOT NULL,
+        role VARCHAR(20) NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        mode VARCHAR(20),
+        provider VARCHAR(50),
+        sources_json NVARCHAR(MAX) NULL,
+        created_at DATETIME2 DEFAULT GETDATE(),
+        CONSTRAINT FK_chat_messages_conversation FOREIGN KEY (conversation_id) REFERENCES chat_conversations(id) ON DELETE CASCADE
+    );
+    CREATE INDEX idx_chat_msg_conv_id ON chat_messages(conversation_id);
+END
+GO
+
