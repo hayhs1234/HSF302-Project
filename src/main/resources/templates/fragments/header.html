@@ -22,7 +22,11 @@
 
             <!-- User profile pill -->
             <div class="d-flex align-items-center gap-2 bg-white rounded-pill p-1 pe-3 border shadow-sm">
-                <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold text-uppercase"
+                <img th:if="${session.currentUser != null and session.currentUser.avatarUrl != null}"
+                     th:src="${session.currentUser.avatarUrl}" alt="Ảnh đại diện" referrerpolicy="no-referrer"
+                     class="rounded-circle" style="width: 36px; height: 36px; object-fit: cover;">
+                <div th:unless="${session.currentUser != null and session.currentUser.avatarUrl != null}"
+                     class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold text-uppercase"
                      style="width: 36px; height: 36px; font-size: 0.85rem;"
                      th:text="${session.currentUser != null ? session.currentUser.initials : 'SV'}">
                     SV
@@ -40,10 +44,12 @@
             </div>
 
             <!-- Logout Button -->
-            <a th:href="@{/logout}" class="btn btn-outline-danger rounded-pill px-3 py-2 d-flex align-items-center gap-1 shadow-sm" title="Đăng xuất khỏi hệ thống">
-                <i class="bi bi-box-arrow-right"></i>
-                <span class="d-none d-md-inline fw-semibold small">Đăng xuất</span>
-            </a>
+            <form th:action="@{/logout}" method="post" class="m-0">
+                <button type="submit" class="btn btn-outline-danger rounded-pill px-3 py-2 d-flex align-items-center gap-1 shadow-sm" title="Đăng xuất khỏi hệ thống">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span class="d-none d-md-inline fw-semibold small">Đăng xuất</span>
+                </button>
+            </form>
         </div>
     </header>
 </body>

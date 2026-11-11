@@ -1,6 +1,10 @@
 package com.studyhub.controller;
 
+import com.studyhub.ai.service.DocumentIndexingService;
 import com.studyhub.dto.DocumentFormDto;
+import com.studyhub.model.User;
+import com.studyhub.repository.DocumentRepository;
+import jakarta.servlet.http.HttpSession;
 import com.studyhub.model.Document;
 import com.studyhub.model.Subject;
 import com.studyhub.service.DocumentService;
@@ -31,10 +35,15 @@ public class DocumentController {
 
     private final DocumentService documentService;
     private final SubjectService subjectService;
+    private final DocumentRepository documentRepository;
+    private final DocumentIndexingService documentIndexingService;
 
-    public DocumentController(DocumentService documentService, SubjectService subjectService) {
+    public DocumentController(DocumentService documentService, SubjectService subjectService,
+                              DocumentRepository documentRepository, DocumentIndexingService documentIndexingService) {
         this.documentService = documentService;
         this.subjectService = subjectService;
+        this.documentRepository = documentRepository;
+        this.documentIndexingService = documentIndexingService;
     }
 
     @GetMapping
@@ -184,6 +193,37 @@ public class DocumentController {
             redirectAttributes.addFlashAttribute("successMessage", "Đã xóa tài liệu thành công!");
         }
         return "redirect:/dashboard";
+    }
+
+    /**
+     * Mở tài liệu ngay trong trình duyệt (inline) để trích dẫn [n] trong chat có thể nhảy tới đúng trang: /documents/view/{id}#page=N
+     */
+    @GetMapping("/view/{id}")
+    public ResponseEntity<Resource> viewDocumentInline(@PathVariable Long id, HttpSession session) {
+        User currentUser = (User) session.getAttribute("currentUser");
+        if (currentUser == null) {
+            return ResponseEntity.status(401).build();
+        }
+        Document doc = documentRepository.findAccessibleByIdAndUser(id, currentUser.getId()).orElse(null);
+        if (doc == null) {
+            return ResponseEntity.notFound().build();
+        }
+        File physicalFile = documentIndexingService.resolvePhysicalFile(doc);
+        if (physicalFile == null || !physicalFile.exists()) {
+            return ResponseEntity.notFound().build();
+        }
+        String ext = doc.getFileExtension() != null ? doc.getFileExtension().trim().toLowerCase() : "";
+        MediaType type = switch (ext) {
+            case "pdf" -> MediaType.APPLICATION_PDF;
+            case "txt", "md", "sql", "csv", "java", "py", "js" -> new MediaType("text", "plain", StandardCharsets.UTF_8);
+            default -> MediaType.APPLICATION_OCTET_STREAM;
+        };
+        String disposition = type.equals(MediaType.APPLICATION_OCTET_STREAM) ? "attachment" : "inline";
+        String encodedName = java.net.URLEncoder.encode(physicalFile.getName(), StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition + "; filename*=UTF-8''" + encodedName)
+                .contentType(type)
+                .body(new FileSystemResource(physicalFile));
     }
 
     @GetMapping("/download/{id}")

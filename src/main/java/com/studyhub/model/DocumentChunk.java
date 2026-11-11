@@ -28,6 +28,10 @@ public class DocumentChunk {
     @Column(name = "token_count")
     private int tokenCount;
 
+    /** Số trang (PDF) hoặc số slide (PPTX) chứa đoạn này; null nếu định dạng không phân trang. */
+    @Column(name = "page_number")
+    private Integer pageNumber;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -80,6 +84,14 @@ public class DocumentChunk {
 
     public void setTokenCount(int tokenCount) {
         this.tokenCount = tokenCount;
+    }
+
+    public Integer getPageNumber() {
+        return pageNumber;
+    }
+
+    public void setPageNumber(Integer pageNumber) {
+        this.pageNumber = pageNumber;
     }
 
     public LocalDateTime getCreatedAt() {

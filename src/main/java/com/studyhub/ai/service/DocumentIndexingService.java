@@ -60,38 +60,33 @@ public class DocumentIndexingService {
                 return 0;
             }
 
-            String extractedText = "";
+            // Trích xuất theo từng trang/slide để mỗi đoạn biết mình nằm ở trang nào (phục vụ trích dẫn mở đúng trang)
+            List<DocumentTextExtractor.PageText> pages = new ArrayList<>();
             File physicalFile = resolvePhysicalFile(doc);
             if (physicalFile != null && physicalFile.exists()) {
-                extractedText = documentTextExtractor.extractText(physicalFile, doc.getFileExtension());
+                pages.addAll(documentTextExtractor.extractPages(physicalFile, doc.getFileExtension()));
             }
 
             // Nếu tài liệu không có file vật lý nhưng có mô tả chi tiết, dùng mô tả làm nội dung tối thiểu
-            if ((extractedText == null || extractedText.isBlank())
-                    && doc.getDescription() != null && doc.getDescription().trim().length() >= 30) {
-                extractedText = doc.getDescription().trim();
+            if (pages.isEmpty() && doc.getDescription() != null && doc.getDescription().trim().length() >= 30) {
+                pages.add(new DocumentTextExtractor.PageText(null, doc.getDescription().trim()));
             }
 
-            if (extractedText == null || extractedText.isBlank()) {
-                doc.setIndexStatus("NO_CONTENT");
-                doc.setIndexedAt(LocalDateTime.now());
-                documentRepository.save(doc);
-                return 0;
-            }
-
-            List<String> textChunks = splitIntoChunks(extractedText, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP);
-            if (textChunks.isEmpty()) {
-                doc.setIndexStatus("NO_CONTENT");
-                doc.setIndexedAt(LocalDateTime.now());
-                documentRepository.save(doc);
-                return 0;
-            }
-
-            List<DocumentChunk> entities = new ArrayList<>(textChunks.size());
+            List<DocumentChunk> entities = new ArrayList<>();
             int idx = 1;
-            for (String chunkText : textChunks) {
-                int tokenCount = countApproxTokens(chunkText);
-                entities.add(new DocumentChunk(doc, idx++, chunkText, tokenCount));
+            for (DocumentTextExtractor.PageText page : pages) {
+                for (String chunkText : splitIntoChunks(page.text(), DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_OVERLAP)) {
+                    DocumentChunk chunk = new DocumentChunk(doc, idx++, chunkText, countApproxTokens(chunkText));
+                    chunk.setPageNumber(page.pageNumber());
+                    entities.add(chunk);
+                }
+            }
+
+            if (entities.isEmpty()) {
+                doc.setIndexStatus("NO_CONTENT");
+                doc.setIndexedAt(LocalDateTime.now());
+                documentRepository.save(doc);
+                return 0;
             }
             documentChunkRepository.saveAll(entities);
 
@@ -132,7 +127,8 @@ public class DocumentIndexingService {
             long existingChunks = documentChunkRepository.countByDocumentId(doc.getId());
             boolean needsIndex = doc.getIndexStatus() == null
                     || "PENDING".equalsIgnoreCase(doc.getIndexStatus())
-                    || ("INDEXED".equalsIgnoreCase(doc.getIndexStatus()) && existingChunks == 0);
+                    || ("INDEXED".equalsIgnoreCase(doc.getIndexStatus()) && existingChunks == 0)
+                    || needsPageReindex(doc, existingChunks);
             if (needsIndex) {
                 int count = indexDocument(doc);
                 if (count > 0) {
@@ -141,6 +137,21 @@ public class DocumentIndexingService {
             }
         }
         return indexedDocs;
+    }
+
+    /**
+     * Tài liệu PDF/PPTX được lập chỉ mục trước khi có cột page_number cần lập lại để trích dẫn mở đúng trang.
+     */
+    private boolean needsPageReindex(Document doc, long existingChunks) {
+        if (existingChunks == 0 || !"INDEXED".equalsIgnoreCase(doc.getIndexStatus())) {
+            return false;
+        }
+        String ext = doc.getFileExtension() != null ? doc.getFileExtension().trim().toLowerCase() : "";
+        if (!ext.equals("pdf") && !ext.equals("pptx")) {
+            return false;
+        }
+        File f = resolvePhysicalFile(doc);
+        return f != null && f.exists() && !documentChunkRepository.existsByDocumentIdAndPageNumberIsNotNull(doc.getId());
     }
 
     /**

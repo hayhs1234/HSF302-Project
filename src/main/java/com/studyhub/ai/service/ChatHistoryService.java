@@ -90,9 +90,12 @@ public class ChatHistoryService {
         return turns;
     }
 
+    /**
+     * Lưu cặp câu hỏi/câu trả lời và trả về id tin nhắn của AI (dùng cho nút đánh giá 👍/👎).
+     */
     @Transactional
-    public void saveExchange(ChatConversation conversation, String userQuestion, ChatResponseDto aiResponse) {
-        if (conversation == null || conversation.getId() == null) return;
+    public Long saveExchange(ChatConversation conversation, String userQuestion, ChatResponseDto aiResponse) {
+        if (conversation == null || conversation.getId() == null) return null;
 
         ChatMessage userMsg = new ChatMessage(conversation, "user", userQuestion);
         userMsg.setMode(aiResponse.getMode());
@@ -114,10 +117,48 @@ public class ChatHistoryService {
                 log.warn("Không thể tuần tự hóa nguồn trích dẫn: {}", e.getMessage());
             }
         }
-        messageRepository.save(assistantMsg);
+        ChatMessage savedAssistant = messageRepository.save(assistantMsg);
 
         conversation.setUpdatedAt(LocalDateTime.now());
         conversationRepository.save(conversation);
+        return savedAssistant.getId();
+    }
+
+    /**
+     * Ghi nhận đánh giá của người dùng cho một câu trả lời AI. value: 1, -1 hoặc 0 (bỏ đánh giá).
+     */
+    @Transactional
+    public boolean setFeedback(Long messageId, Long userId, int value) {
+        if (messageId == null || userId == null || value < -1 || value > 1) return false;
+        Optional<ChatMessage> opt = messageRepository.findByIdAndUserId(messageId, userId);
+        if (opt.isEmpty() || !"assistant".equalsIgnoreCase(opt.get().getRole())) return false;
+        ChatMessage msg = opt.get();
+        msg.setFeedback(value == 0 ? null : value);
+        msg.setFeedbackAt(value == 0 ? null : LocalDateTime.now());
+        messageRepository.save(msg);
+        return true;
+    }
+
+    /**
+     * Thống kê 👍/👎 theo chế độ trả lời của người dùng: {RAG: {up, down}, GENERAL: {up, down}}.
+     */
+    public Map<String, Map<String, Long>> getFeedbackStats(Long userId) {
+        Map<String, Map<String, Long>> stats = new LinkedHashMap<>();
+        for (String mode : List.of("RAG", "GENERAL")) {
+            Map<String, Long> m = new HashMap<>();
+            m.put("up", 0L);
+            m.put("down", 0L);
+            stats.put(mode, m);
+        }
+        if (userId == null) return stats;
+        for (Object[] row : messageRepository.countFeedbackByMode(userId)) {
+            String mode = row[0] != null ? row[0].toString().toUpperCase() : "GENERAL";
+            Integer fb = (Integer) row[1];
+            long count = ((Number) row[2]).longValue();
+            Map<String, Long> m = stats.computeIfAbsent(mode, k -> new HashMap<>(Map.of("up", 0L, "down", 0L)));
+            m.merge(fb != null && fb > 0 ? "up" : "down", count, Long::sum);
+        }
+        return stats;
     }
 
     public List<Map<String, Object>> getMessagesForDisplay(Long conversationId) {
@@ -136,6 +177,7 @@ public class ChatHistoryService {
             item.put("documentId", m.getDocumentId());
             item.put("documentTitle", m.getDocumentTitle());
             item.put("timestamp", m.getFormattedTime());
+            item.put("feedback", m.getFeedback());
 
             List<SourceChunkDto> sources = Collections.emptyList();
             if (m.getSourcesJson() != null && !m.getSourcesJson().isBlank()) {

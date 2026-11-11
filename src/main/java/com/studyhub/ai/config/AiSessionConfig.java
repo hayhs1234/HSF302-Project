@@ -62,6 +62,17 @@ public class AiSessionConfig implements Serializable {
         return provider == AiProvider.GROQ ? getGroqModel() : getGeminiModel();
     }
 
+    /** Bản sao cấu hình nhưng dùng nhà cung cấp khác (để dự phòng khi nhà cung cấp chính quá tải) */
+    public AiSessionConfig copyWithProvider(AiProvider otherProvider) {
+        AiSessionConfig copy = new AiSessionConfig();
+        copy.setProvider(otherProvider);
+        copy.setGeminiApiKey(getGeminiApiKey());
+        copy.setGeminiModel(getGeminiModel());
+        copy.setGroqApiKey(getGroqApiKey());
+        copy.setGroqModel(getGroqModel());
+        return copy;
+    }
+
     public boolean hasActiveKey() {
         String key = getActiveApiKey();
         return key != null && !key.isBlank();

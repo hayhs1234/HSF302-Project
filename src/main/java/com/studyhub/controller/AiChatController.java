@@ -1,5 +1,6 @@
 package com.studyhub.controller;
 
+import com.studyhub.ai.config.AiConfigResolver;
 import com.studyhub.ai.config.AiProvider;
 import com.studyhub.ai.config.AiSessionConfig;
 import com.studyhub.ai.dto.*;
@@ -11,44 +12,61 @@ import com.studyhub.model.Document;
 import com.studyhub.model.User;
 import com.studyhub.repository.DocumentRepository;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Controller
 public class AiChatController {
 
     private static final Logger log = LoggerFactory.getLogger(AiChatController.class);
-    private static final String SESSION_AI_CONFIG = "AI_SESSION_CONFIG";
     private static final int MAX_CONTEXT_MESSAGES = 10;
+    private static final long STREAM_TIMEOUT_MS = 300_000L;
+
+    private final ExecutorService streamExecutor = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "ai-stream");
+        t.setDaemon(true);
+        return t;
+    });
+    private final ObjectMapper sseMapper = new ObjectMapper()
+            .configure(JsonGenerator.Feature.ESCAPE_NON_ASCII, true);
 
     private final RagService ragService;
     private final DocumentRepository documentRepository;
     private final ChatHistoryService chatHistoryService;
     private final RagQuizService ragQuizService;
 
-    @Value("${studyhub.ai.gemini.api-key:}")
-    private String defaultGeminiApiKey;
-
-    @Value("${studyhub.ai.groq.api-key:}")
-    private String defaultGroqApiKey;
+    private final AiConfigResolver aiConfigResolver;
 
     public AiChatController(RagService ragService,
                             DocumentRepository documentRepository,
                             ChatHistoryService chatHistoryService,
-                            RagQuizService ragQuizService) {
+                            RagQuizService ragQuizService,
+                            AiConfigResolver aiConfigResolver) {
         this.ragService = ragService;
         this.documentRepository = documentRepository;
         this.chatHistoryService = chatHistoryService;
         this.ragQuizService = ragQuizService;
+        this.aiConfigResolver = aiConfigResolver;
+    }
+
+    @PreDestroy
+    public void shutdownStreams() {
+        streamExecutor.shutdownNow();
     }
 
     @PostConstruct
@@ -62,33 +80,11 @@ public class AiChatController {
     }
 
     private String resolveGroqKey() {
-        if (defaultGroqApiKey != null && !defaultGroqApiKey.isBlank()) {
-            return defaultGroqApiKey.trim();
-        }
-        String env = System.getenv("GROQ_API_KEY");
-        if (env != null && !env.isBlank()) {
-            return env.trim();
-        }
-        String prop = System.getProperty("GROQ_API_KEY");
-        if (prop != null && !prop.isBlank()) {
-            return prop.trim();
-        }
-        return "";
+        return aiConfigResolver.resolveGroqKey();
     }
 
     private String resolveGeminiKey() {
-        if (defaultGeminiApiKey != null && !defaultGeminiApiKey.isBlank()) {
-            return defaultGeminiApiKey.trim();
-        }
-        String env = System.getenv("GEMINI_API_KEY");
-        if (env != null && !env.isBlank()) {
-            return env.trim();
-        }
-        String prop = System.getProperty("GEMINI_API_KEY");
-        if (prop != null && !prop.isBlank()) {
-            return prop.trim();
-        }
-        return "";
+        return aiConfigResolver.resolveGeminiKey();
     }
 
     @GetMapping("/ai/chat")
@@ -146,23 +142,10 @@ public class AiChatController {
                     .body(ChatResponseDto.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "Hệ thống"));
         }
 
-        AiSessionConfig config = getOrCreateSessionConfig(session);
+        AiSessionConfig config = getConfigWithActiveKey(session);
 
         if (!config.hasActiveKey()) {
-            String gKey = resolveGroqKey();
-            String gmKey = resolveGeminiKey();
-            if (config.getProvider() == AiProvider.GROQ && !gKey.isBlank()) {
-                config.setGroqApiKey(gKey);
-            } else if (config.getProvider() == AiProvider.GEMINI && !gmKey.isBlank()) {
-                config.setGeminiApiKey(gmKey);
-            }
-        }
-
-        if (!config.hasActiveKey()) {
-            return ResponseEntity.ok(ChatResponseDto.error(
-                    "Dịch vụ AI " + config.getProvider().getDisplayName() + " hiện chưa sẵn sàng trên hệ thống. Vui lòng liên hệ quản trị viên.",
-                    config.getProvider().getDisplayName()
-            ));
+            return ResponseEntity.ok(ChatResponseDto.error(noKeyMessage(config), config.getProvider().getDisplayName()));
         }
 
         List<ChatTurnDto> historyTurns = request.getConversationId() != null
@@ -185,12 +168,130 @@ public class AiChatController {
                     response.getDocumentId(),
                     response.getDocumentTitle()
             );
-            chatHistoryService.saveExchange(conv, request.getMessage(), response);
+            response.setAssistantMessageId(chatHistoryService.saveExchange(conv, request.getMessage(), response));
             response.setConversationId(conv.getId());
             response.setConversationTitle(conv.getTitle());
         }
 
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Chat streaming (Server-Sent Events): chữ hiện dần như ChatGPT.
+     * Sự kiện gửi về trình duyệt:
+     *  - meta  : nguồn trích dẫn, chế độ, tài liệu (gửi trước khi AI bắt đầu viết)
+     *  - delta : {"text": "..."} từng mảnh câu trả lời
+     *  - done  : ChatResponseDto đầy đủ (kèm conversationId, assistantMessageId) sau khi đã lưu DB
+     */
+    @PostMapping(value = "/api/ai/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @ResponseBody
+    public SseEmitter streamChat(@RequestBody ChatRequestDto request, HttpSession session) {
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        User currentUser = getCurrentUser(session);
+        if (currentUser == null) {
+            sendSse(emitter, "done", ChatResponseDto.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", "Hệ thống"));
+            emitter.complete();
+            return emitter;
+        }
+
+        AiSessionConfig config = getConfigWithActiveKey(session);
+        if (!config.hasActiveKey()) {
+            sendSse(emitter, "done", ChatResponseDto.error(noKeyMessage(config), config.getProvider().getDisplayName()));
+            emitter.complete();
+            return emitter;
+        }
+
+        List<ChatTurnDto> historyTurns = request.getConversationId() != null
+                ? chatHistoryService.getRecentTurns(request.getConversationId(), MAX_CONTEXT_MESSAGES)
+                : Collections.emptyList();
+
+        streamExecutor.execute(() -> {
+            try {
+                RagService.PreparedChat prepared = request.isRagMode()
+                        ? ragService.prepareRag(currentUser.getId(), request.getDocumentId(), request.getMessage(), historyTurns, config)
+                        : ragService.prepareGeneral(request.getMessage(), historyTurns, config);
+
+                if (!prepared.hasImmediateResponse()) {
+                    Map<String, Object> meta = new HashMap<>();
+                    meta.put("mode", prepared.getMode());
+                    meta.put("documentId", prepared.getDocumentId());
+                    meta.put("documentTitle", prepared.getDocumentTitle());
+                    meta.put("sources", prepared.getSources());
+                    meta.put("provider", config.getProvider().getDisplayName());
+                    meta.put("model", config.getActiveModel());
+                    sendSse(emitter, "meta", meta);
+                }
+
+                ChatResponseDto response = ragService.stream(prepared, config, piece -> {
+                    if (!sendSse(emitter, "delta", Map.of("text", piece))) {
+                        throw new IllegalStateException("Client đã ngắt kết nối streaming");
+                    }
+                });
+
+                if (response.isSuccess()) {
+                    ChatConversation conv = chatHistoryService.getOrCreateConversation(
+                            request.getConversationId(), currentUser, request.getMessage(),
+                            response.getMode(), response.getDocumentId(), response.getDocumentTitle());
+                    response.setAssistantMessageId(chatHistoryService.saveExchange(conv, request.getMessage(), response));
+                    response.setConversationId(conv.getId());
+                    response.setConversationTitle(conv.getTitle());
+                }
+                sendSse(emitter, "done", response);
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("Streaming chat kết thúc bất thường: {}", e.getMessage());
+                emitter.complete();
+            }
+        });
+        return emitter;
+    }
+
+    /**
+     * Người dùng đánh giá câu trả lời AI (👍 = 1, 👎 = -1, bỏ chọn = 0) để đo chất lượng RAG.
+     */
+    @PostMapping("/api/ai/messages/{id}/feedback")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> submitFeedback(@PathVariable Long id,
+                                                              @RequestBody Map<String, Integer> payload,
+                                                              HttpSession session) {
+        User currentUser = getCurrentUser(session);
+        if (currentUser == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
+        }
+        int value = payload != null && payload.get("value") != null ? payload.get("value") : 0;
+        boolean ok = chatHistoryService.setFeedback(id, currentUser.getId(), value);
+        if (!ok) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Không thể ghi nhận đánh giá."));
+        }
+        return ResponseEntity.ok(Map.of("success", true, "value", value));
+    }
+
+    /** Gửi một sự kiện SSE dạng JSON (ASCII-escaped để không phụ thuộc charset). Trả về false nếu client đã ngắt. */
+    private boolean sendSse(SseEmitter emitter, String eventName, Object payload) {
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(sseMapper.writeValueAsString(payload)));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String noKeyMessage(AiSessionConfig config) {
+        return "Dịch vụ AI " + config.getProvider().getDisplayName() + " hiện chưa sẵn sàng trên hệ thống. Vui lòng liên hệ quản trị viên.";
+    }
+
+    private AiSessionConfig getConfigWithActiveKey(HttpSession session) {
+        AiSessionConfig config = getOrCreateSessionConfig(session);
+        if (!config.hasActiveKey()) {
+            String gKey = resolveGroqKey();
+            String gmKey = resolveGeminiKey();
+            if (config.getProvider() == AiProvider.GROQ && !gKey.isBlank()) {
+                config.setGroqApiKey(gKey);
+            } else if (config.getProvider() == AiProvider.GEMINI && !gmKey.isBlank()) {
+                config.setGeminiApiKey(gmKey);
+            }
+        }
+        return config;
     }
 
     @GetMapping("/api/ai/conversations")
@@ -301,7 +402,7 @@ public class AiChatController {
             config.setGeminiApiKey(resolveGeminiKey());
         }
 
-        session.setAttribute(SESSION_AI_CONFIG, config);
+        session.setAttribute(AiConfigResolver.SESSION_AI_CONFIG, config);
 
         result.put("success", true);
         result.put("message", "Đã cập nhật mô hình AI thành công!");
@@ -353,25 +454,6 @@ public class AiChatController {
     }
 
     private AiSessionConfig getOrCreateSessionConfig(HttpSession session) {
-        AiSessionConfig config = (AiSessionConfig) session.getAttribute(SESSION_AI_CONFIG);
-        if (config == null) {
-            config = new AiSessionConfig();
-            session.setAttribute(SESSION_AI_CONFIG, config);
-        }
-
-        String sysGroq = resolveGroqKey();
-        String sysGemini = resolveGeminiKey();
-        if ((config.getGroqApiKey() == null || config.getGroqApiKey().isBlank()) && !sysGroq.isBlank()) {
-            config.setGroqApiKey(sysGroq);
-        }
-        if ((config.getGeminiApiKey() == null || config.getGeminiApiKey().isBlank()) && !sysGemini.isBlank()) {
-            config.setGeminiApiKey(sysGemini);
-        }
-
-        if (config.getProvider() == null) {
-            config.setProvider(!sysGroq.isBlank() ? AiProvider.GROQ : AiProvider.GEMINI);
-        }
-
-        return config;
+        return aiConfigResolver.getOrCreateSessionConfig(session);
     }
 }

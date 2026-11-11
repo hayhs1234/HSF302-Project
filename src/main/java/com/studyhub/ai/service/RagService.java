@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,12 +41,108 @@ public class RagService {
     }
 
     /**
+     * Ngữ cảnh đã chuẩn bị sẵn cho một lượt hỏi: hoặc là phản hồi tức thì (lỗi / không tìm thấy đoạn liên quan),
+     * hoặc là prompt sẵn sàng gửi cho mô hình AI (dùng chung cho chế độ trả lời thường và streaming).
+     */
+    public static class PreparedChat {
+        private ChatResponseDto immediateResponse;
+        private String systemPrompt;
+        private String userPrompt;
+        private List<ChatTurnDto> historyTurns = Collections.emptyList();
+        private String mode;
+        private Long documentId;
+        private String documentTitle;
+        private List<SourceChunkDto> sources = new ArrayList<>();
+
+        static PreparedChat immediate(ChatResponseDto response) {
+            PreparedChat p = new PreparedChat();
+            p.immediateResponse = response;
+            return p;
+        }
+
+        public boolean hasImmediateResponse() {
+            return immediateResponse != null;
+        }
+
+        public ChatResponseDto getImmediateResponse() {
+            return immediateResponse;
+        }
+
+        public String getMode() {
+            return mode;
+        }
+
+        public Long getDocumentId() {
+            return documentId;
+        }
+
+        public String getDocumentTitle() {
+            return documentTitle;
+        }
+
+        public List<SourceChunkDto> getSources() {
+            return sources;
+        }
+    }
+
+    /**
      * Tra cứu tài liệu (RAG) có kiểm tra quyền truy cập của người dùng và hỗ trợ hội thoại nhiều lượt
      */
     public ChatResponseDto askRag(Long userId, Long documentId, String question,
                                   List<ChatTurnDto> historyTurns, AiSessionConfig config) {
+        return complete(prepareRag(userId, documentId, question, historyTurns, config), config);
+    }
+
+    /**
+     * Trò chuyện tự do (General LLM Chat) có hỗ trợ nhớ ngữ cảnh hội thoại nhiều lượt
+     */
+    public ChatResponseDto askGeneral(String question, List<ChatTurnDto> historyTurns, AiSessionConfig config) {
+        return complete(prepareGeneral(question, historyTurns, config), config);
+    }
+
+    /**
+     * Gọi AI và chờ toàn bộ câu trả lời (không streaming).
+     */
+    public ChatResponseDto complete(PreparedChat prepared, AiSessionConfig config) {
+        return stream(prepared, config, null);
+    }
+
+    /**
+     * Gọi AI ở chế độ streaming: mỗi mảnh văn bản mới được đẩy qua onDelta ngay khi mô hình sinh ra.
+     * Nếu onDelta == null thì gọi API thường và trả về toàn bộ câu trả lời một lần.
+     */
+    public ChatResponseDto stream(PreparedChat prepared, AiSessionConfig config, Consumer<String> onDelta) {
+        if (prepared.hasImmediateResponse()) {
+            return prepared.getImmediateResponse();
+        }
+        try {
+            AiServiceFactory.AiResult result = aiServiceFactory.streamWithFallback(
+                    prepared.historyTurns, prepared.userPrompt, prepared.systemPrompt, config, onDelta);
+            AiSessionConfig used = result.usedConfig();
+
+            ChatResponseDto response = ChatResponseDto.success(
+                    result.text(),
+                    used.getProvider().getDisplayName(),
+                    used.getActiveModel(),
+                    prepared.mode
+            );
+            response.setDocumentId(prepared.documentId);
+            response.setDocumentTitle(prepared.documentTitle);
+            response.setSources(prepared.sources);
+            return response;
+        } catch (Exception e) {
+            log.error("Lỗi gọi dịch vụ AI ({}): {}", prepared.mode, e.getMessage(), e);
+            return ChatResponseDto.error(cleanErrorMessage(e.getMessage()), config.getProvider().getDisplayName());
+        }
+    }
+
+    /**
+     * Bước 1 của RAG: kiểm tra quyền, truy hồi đoạn liên quan bằng BM25 và dựng prompt kèm nguồn trích dẫn.
+     */
+    public PreparedChat prepareRag(Long userId, Long documentId, String question,
+                                   List<ChatTurnDto> historyTurns, AiSessionConfig config) {
         if (question == null || question.isBlank()) {
-            return ChatResponseDto.error("Vui lòng nhập nội dung câu hỏi.", config.getProvider().getDisplayName());
+            return PreparedChat.immediate(ChatResponseDto.error("Vui lòng nhập nội dung câu hỏi.", config.getProvider().getDisplayName()));
         }
 
         try {
@@ -56,19 +153,19 @@ public class RagService {
             if (documentId != null) {
                 Optional<Document> docOpt = documentRepository.findAccessibleByIdAndUser(documentId, effectiveUserId);
                 if (docOpt.isEmpty()) {
-                    return ChatResponseDto.error(
+                    return PreparedChat.immediate(ChatResponseDto.error(
                             "Không tìm thấy tài liệu hoặc bạn không có quyền truy cập tài liệu này.",
                             config.getProvider().getDisplayName()
-                    );
+                    ));
                 }
                 Document doc = docOpt.get();
                 targetDocTitle = doc.getTitle();
 
                 if ("NO_CONTENT".equalsIgnoreCase(doc.getIndexStatus())) {
-                    return ChatResponseDto.error(
+                    return PreparedChat.immediate(ChatResponseDto.error(
                             "Tài liệu \"" + doc.getTitle() + "\" (" + doc.getFileExtension() + ") là tệp nén hoặc định dạng không hỗ trợ trích xuất văn bản. Vui lòng chọn tài liệu PDF, DOCX hoặc PPTX.",
                             config.getProvider().getDisplayName()
-                    );
+                    ));
                 }
 
                 List<DocumentChunk> docChunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(doc.getId());
@@ -81,10 +178,10 @@ public class RagService {
                 // Toàn bộ tài liệu mà người dùng được phép xem (của cá nhân + được chia sẻ công khai)
                 List<Document> accessibleDocs = documentRepository.findAccessibleByUser(effectiveUserId);
                 if (accessibleDocs.isEmpty()) {
-                    return ChatResponseDto.error(
+                    return PreparedChat.immediate(ChatResponseDto.error(
                             "Kho tài liệu của bạn hiện đang trống. Vui lòng tải tài liệu lên trước khi tra cứu.",
                             config.getProvider().getDisplayName()
-                    );
+                    ));
                 }
 
                 List<Long> docIds = new ArrayList<>(accessibleDocs.size());
@@ -98,10 +195,10 @@ public class RagService {
             }
 
             if (candidateChunks.isEmpty()) {
-                return ChatResponseDto.error(
+                return PreparedChat.immediate(ChatResponseDto.error(
                         "Chưa có nội dung văn bản nào được trích xuất từ tài liệu đã chọn.",
                         config.getProvider().getDisplayName()
-                );
+                ));
             }
 
             List<Bm25Retriever.ScoredChunk> scoredChunks;
@@ -142,7 +239,7 @@ public class RagService {
                 );
                 noMatchRes.setDocumentId(documentId);
                 noMatchRes.setDocumentTitle(targetDocTitle);
-                return noMatchRes;
+                return PreparedChat.immediate(noMatchRes);
             }
 
             StringBuilder contextBuilder = new StringBuilder();
@@ -160,16 +257,19 @@ public class RagService {
                         : "Chung";
                 String ext = (doc != null && doc.getFileExtension() != null) ? doc.getFileExtension() : "PDF";
 
+                String location = chunk.getPageNumber() == null
+                        ? "Đoạn " + chunk.getChunkIndex()
+                        : ("pptx".equalsIgnoreCase(ext) ? "Slide " : "Trang ") + chunk.getPageNumber();
                 contextBuilder.append(String.format(
-                        "[%d] Tài liệu: \"%s\" | Môn học: %s | Đoạn %d:\n%s\n\n",
-                        citationNum, docTitle, subjectInfo, chunk.getChunkIndex(), chunk.getContent()
+                        "[%d] Tài liệu: \"%s\" | Môn học: %s | %s:\n%s\n\n",
+                        citationNum, docTitle, subjectInfo, location, chunk.getContent()
                 ));
 
                 String snippet = chunk.getContent().length() > 240
                         ? chunk.getContent().substring(0, 240) + "…"
                         : chunk.getContent();
 
-                sourceDtos.add(new SourceChunkDto(
+                SourceChunkDto sourceDto = new SourceChunkDto(
                         citationNum,
                         doc != null ? doc.getId() : null,
                         docTitle,
@@ -178,7 +278,9 @@ public class RagService {
                         chunk.getChunkIndex(),
                         snippet,
                         sc.getScore()
-                ));
+                );
+                sourceDto.setPageNumber(chunk.getPageNumber());
+                sourceDtos.add(sourceDto);
             }
 
             String systemPrompt = """
@@ -201,35 +303,31 @@ public class RagService {
                     %s
                     """, contextBuilder, question);
 
-            AiChatService aiService = aiServiceFactory.getService(config.getProvider());
-            String aiReply = aiService.generateResponse(historyTurns, augmentedUserPrompt, systemPrompt, config);
-
-            ChatResponseDto response = ChatResponseDto.success(
-                    aiReply,
-                    config.getProvider().getDisplayName(),
-                    config.getActiveModel(),
-                    "RAG"
-            );
-            response.setDocumentId(documentId);
-            response.setDocumentTitle(targetDocTitle);
-            response.setSources(sourceDtos);
-            return response;
+            PreparedChat prepared = new PreparedChat();
+            prepared.systemPrompt = systemPrompt;
+            prepared.userPrompt = augmentedUserPrompt;
+            prepared.historyTurns = historyTurns != null ? historyTurns : Collections.emptyList();
+            prepared.mode = "RAG";
+            prepared.documentId = documentId;
+            prepared.documentTitle = targetDocTitle;
+            prepared.sources = sourceDtos;
+            return prepared;
 
         } catch (Exception e) {
             log.error("Lỗi xử lý tra cứu tài liệu (RAG): {}", e.getMessage(), e);
-            return ChatResponseDto.error(cleanErrorMessage(e.getMessage()), config.getProvider().getDisplayName());
+            return PreparedChat.immediate(ChatResponseDto.error(cleanErrorMessage(e.getMessage()), config.getProvider().getDisplayName()));
         }
     }
 
     /**
-     * Trò chuyện tự do (General LLM Chat) có hỗ trợ nhớ ngữ cảnh hội thoại nhiều lượt
+     * Bước chuẩn bị cho chế độ trò chuyện tự do.
      */
-    public ChatResponseDto askGeneral(String question, List<ChatTurnDto> historyTurns, AiSessionConfig config) {
+    public PreparedChat prepareGeneral(String question, List<ChatTurnDto> historyTurns, AiSessionConfig config) {
         if (question == null || question.isBlank()) {
-            return ChatResponseDto.error("Vui lòng nhập nội dung câu hỏi.", config.getProvider().getDisplayName());
+            return PreparedChat.immediate(ChatResponseDto.error("Vui lòng nhập nội dung câu hỏi.", config.getProvider().getDisplayName()));
         }
 
-        try {
+        {
             String systemPrompt = """
                     Bạn là StudyHub AI — trợ lý học tập và nghiên cứu đại học.
                     Bạn hỗ trợ sinh viên và giảng viên:
@@ -238,18 +336,12 @@ public class RagService {
                     Hãy trả lời bằng tiếng Việt tự nhiên, chuẩn xác, có cấu trúc Markdown rõ ràng. Không bọc ký hiệu hay công thức đơn giản trong dấu $...$ của LaTeX.
                     """;
 
-            AiChatService aiService = aiServiceFactory.getService(config.getProvider());
-            String aiReply = aiService.generateResponse(historyTurns, question, systemPrompt, config);
-
-            return ChatResponseDto.success(
-                    aiReply,
-                    config.getProvider().getDisplayName(),
-                    config.getActiveModel(),
-                    "GENERAL"
-            );
-        } catch (Exception e) {
-            log.error("Lỗi xử lý trò chuyện AI: {}", e.getMessage(), e);
-            return ChatResponseDto.error(cleanErrorMessage(e.getMessage()), config.getProvider().getDisplayName());
+            PreparedChat prepared = new PreparedChat();
+            prepared.systemPrompt = systemPrompt;
+            prepared.userPrompt = question;
+            prepared.historyTurns = historyTurns != null ? historyTurns : Collections.emptyList();
+            prepared.mode = "GENERAL";
+            return prepared;
         }
     }
 

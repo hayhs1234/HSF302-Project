@@ -21,6 +21,8 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, Lo
 
     long countByDocumentId(Long documentId);
 
+    boolean existsByDocumentIdAndPageNumberIsNotNull(Long documentId);
+
     @Modifying
     @Transactional
     @Query("DELETE FROM DocumentChunk c WHERE c.document.id = :documentId")

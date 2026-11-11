@@ -166,13 +166,16 @@ public class RagQuizService {
                     (request.getTopic() != null && !request.getTopic().isBlank() ? "Trọng tâm chủ đề: " + request.getTopic().trim() : ""),
                     count);
 
-            AiChatService aiService = aiServiceFactory.getService(config.getProvider());
-            String rawAiResponse = aiService.generateResponse(Collections.emptyList(), userPrompt, systemPrompt, config);
+            // Tự thử lại / đổi model / đổi nhà cung cấp khi AI quá tải
+            AiServiceFactory.AiResult result = aiServiceFactory.generateWithFallback(
+                    Collections.emptyList(), userPrompt, systemPrompt, config);
+            AiSessionConfig used = result.usedConfig();
+            String rawAiResponse = result.text();
 
             List<QuizQuestionDto> questions = parseQuizJson(rawAiResponse);
             if (questions.isEmpty()) {
                 log.warn("Không parse được JSON Quiz từ phản hồi AI: {}", rawAiResponse);
-                return QuizResponseDto.error("Không thể cấu trúc hóa bộ câu hỏi trắc nghiệm từ AI. Vui lòng bấm tạo lại.", config.getProvider().getDisplayName());
+                return QuizResponseDto.error("Không thể cấu trúc hóa bộ câu hỏi trắc nghiệm từ AI. Vui lòng bấm tạo lại.", used.getProvider().getDisplayName());
             }
 
             // Gán lại số thứ tự id chuẩn 1..N
@@ -184,8 +187,8 @@ public class RagQuizService {
                     quizTitle,
                     documentTitle,
                     targetDoc != null ? targetDoc.getId() : null,
-                    config.getProvider().getDisplayName(),
-                    config.getActiveModel(),
+                    used.getProvider().getDisplayName(),
+                    used.getActiveModel(),
                     questions
             );
 
