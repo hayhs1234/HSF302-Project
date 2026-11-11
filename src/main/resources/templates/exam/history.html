@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kết quả &amp; thống kê - StudyHub</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <link rel="stylesheet" th:href="@{/css/exam.css}">
+</head>
+<body>
+<div th:replace="~{fragments/sidebar :: sidebar(activeTab='exam-history')}"></div>
+
+<div class="main-content">
+    <div th:replace="~{fragments/header :: header}"></div>
+
+    <div th:if="${errorMessage}" class="alert alert-warning alert-dismissible fade show rounded-3 shadow-sm mb-4" role="alert">
+        <i class="bi bi-info-circle-fill me-2"></i>
+        <span th:text="${errorMessage}"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Đóng"></button>
+    </div>
+
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-4">
+        <div>
+            <h3 class="fw-bold mb-1">Kết quả &amp; thống kê học tập</h3>
+            <p class="text-secondary mb-0">Theo dõi tiến bộ, tìm phần kiến thức còn yếu và ôn lại các câu đã làm sai.</p>
+        </div>
+        <a th:href="@{/exam}" class="btn btn-primary rounded-pill px-3 fw-semibold">
+            <i class="bi bi-stopwatch me-1"></i> Vào phòng thi
+        </a>
+    </div>
+
+    <!-- Thẻ số liệu -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-lg-3">
+            <div class="mini-stat">
+                <div class="mini-stat-value" th:text="${stats.attemptCount}">0</div>
+                <div class="mini-stat-label">Bài đã nộp (<span th:text="${stats.examCount}">0</span> thi thử)</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="mini-stat">
+                <div class="mini-stat-value text-success" th:text="${stats.avgScore}">0.0</div>
+                <div class="mini-stat-label">Điểm TB · cao nhất <b th:text="${stats.bestScore}">0</b></div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="mini-stat">
+                <div class="mini-stat-value text-primary" th:text="${stats.accuracy + '%'}">0%</div>
+                <div class="mini-stat-label"><span th:text="${stats.totalCorrect}">0</span>/<span th:text="${stats.totalQuestions}">0</span> câu đúng</div>
+            </div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="mini-stat">
+                <div class="mini-stat-value text-danger" th:text="${stats.wrongCount}">0</div>
+                <div class="mini-stat-label">Câu sai / bỏ trống</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- Biểu đồ tiến bộ -->
+        <div class="col-lg-8">
+            <div class="exam-card p-4 h-100">
+                <h6 class="fw-bold mb-3"><i class="bi bi-graph-up-arrow text-primary me-2"></i>Tiến bộ điểm số (15 bài gần nhất)</h6>
+                <div th:if="${#lists.isEmpty(stats.trendScores)}" class="text-muted small text-center py-5">
+                    Chưa có dữ liệu. Hoàn thành bài thi đầu tiên để xem biểu đồ.
+                </div>
+                <div th:unless="${#lists.isEmpty(stats.trendScores)}" style="height: 260px;">
+                    <canvas id="trendChart" aria-label="Biểu đồ điểm số theo thời gian" role="img"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Theo độ khó + chất lượng AI -->
+        <div class="col-lg-4 d-flex flex-column gap-4">
+            <div class="exam-card p-4">
+                <h6 class="fw-bold mb-3"><i class="bi bi-bar-chart-steps text-primary me-2"></i>Tỉ lệ đúng theo mức độ</h6>
+                <div th:each="entry : ${stats.byDifficulty}" class="mb-2">
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span th:text="${entry.key == 'EASY'} ? 'Dễ' : (${entry.key == 'HARD'} ? 'Khó' : 'Trung bình')">Mức</span>
+                        <span class="fw-semibold" th:text="${entry.value < 0} ? 'Chưa làm' : ${entry.value + '%'}">0%</span>
+                    </div>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar"
+                             th:classappend="${entry.value >= 70} ? 'bg-success' : (${entry.value >= 50} ? 'bg-warning' : 'bg-danger')"
+                             th:style="${'width:' + (entry.value < 0 ? 0 : entry.value) + '%'}"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="exam-card p-4">
+                <h6 class="fw-bold mb-1"><i class="bi bi-hand-thumbs-up text-primary me-2"></i>Chất lượng câu trả lời AI</h6>
+                <p class="small text-muted mb-3">Tổng hợp từ các lượt bạn bấm 👍 / 👎 trong Trợ lý AI.</p>
+                <div th:each="entry : ${feedbackStats}" class="d-flex align-items-center justify-content-between mb-2">
+                    <span class="small fw-semibold" th:text="${entry.key == 'RAG'} ? 'Tra cứu tài liệu (RAG)' : 'Trò chuyện tự do'">RAG</span>
+                    <span class="d-flex gap-2">
+                        <span class="badge bg-success-subtle text-success border">👍 <span th:text="${entry.value.up}">0</span></span>
+                        <span class="badge bg-danger-subtle text-danger border">👎 <span th:text="${entry.value.down}">0</span></span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- Tài liệu cần ôn -->
+        <div class="col-lg-6">
+            <div class="exam-card p-4 h-100">
+                <h6 class="fw-bold mb-3"><i class="bi bi-bullseye text-danger me-2"></i>Tài liệu cần ôn thêm</h6>
+                <div th:if="${#lists.isEmpty(stats.byDocument)}" class="text-muted small text-center py-4">Chưa có dữ liệu.</div>
+                <div th:each="d : ${stats.byDocument}" class="doc-accuracy-row">
+                    <div class="d-flex justify-content-between align-items-center mb-1 gap-2">
+                        <span class="fw-semibold text-truncate small" th:text="${d.documentTitle}">Tài liệu</span>
+                        <span class="small text-nowrap">
+                            <b th:text="${d.accuracy + '%'}">0%</b>
+                            <span class="text-muted">· sai <span th:text="${d.wrong}">0</span>/<span th:text="${d.questions}">0</span> · TB <span th:text="${d.avgScore}">0</span></span>
+                        </span>
+                    </div>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar"
+                             th:classappend="${d.accuracy >= 70} ? 'bg-success' : (${d.accuracy >= 50} ? 'bg-warning' : 'bg-danger')"
+                             th:style="${'width:' + d.accuracy + '%'}"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sổ tay câu sai -->
+        <div class="col-lg-6">
+            <div class="exam-card p-4 h-100">
+                <div class="d-flex align-items-center justify-content-between mb-3 gap-2">
+                    <h6 class="fw-bold mb-0"><i class="bi bi-journal-x text-danger me-2"></i>Sổ tay câu hay sai</h6>
+                    <form th:if="${stats.wrongCount > 0}" th:action="@{/exam/retry-wrong}" method="post">
+                        <input type="hidden" name="questionCount" value="10">
+                        <button type="submit" class="btn btn-sm btn-danger rounded-pill px-3">
+                            <i class="bi bi-arrow-repeat me-1"></i>Luyện lại
+                        </button>
+                    </form>
+                </div>
+                <div th:if="${#lists.isEmpty(stats.frequentWrong)}" class="text-muted small text-center py-4">
+                    Tuyệt vời, chưa có câu sai nào!
+                </div>
+                <div class="wrong-list">
+                    <details th:each="w : ${stats.frequentWrong}" th:with="q=${w.question}" class="wrong-item">
+                        <summary>
+                            <span class="text-truncate flex-fill" th:text="${q.questionText}">Câu hỏi</span>
+                            <span class="badge text-nowrap ms-2"
+                                  th:classappend="${w.wrongTimes > 1} ? 'bg-danger' : 'bg-danger-subtle text-danger'"
+                                  th:text="${'Sai ' + w.wrongTimes + ' lần'}">Sai 1 lần</span>
+                        </summary>
+                        <div class="small text-muted mt-1"><i class="bi bi-file-earmark-text me-1"></i><span th:text="${q.attempt.documentTitle}">Tài liệu</span></div>
+                        <div class="small mt-2">
+                            <div class="text-danger" th:if="${q.selectedIndex != null}">
+                                <i class="bi bi-x-circle me-1"></i>Bạn chọn <b th:text="${q.selectedLetter}">B</b>:
+                                <span th:text="${q.options[q.selectedIndex]}">...</span>
+                            </div>
+                            <div class="text-secondary" th:if="${q.selectedIndex == null}"><i class="bi bi-dash-circle me-1"></i>Bỏ trống</div>
+                            <div class="text-success">
+                                <i class="bi bi-check-circle me-1"></i>Đáp án <b th:text="${q.correctLetter}">A</b>:
+                                <span th:text="${q.options[q.correctIndex]}">...</span>
+                            </div>
+                            <div class="text-secondary mt-1" th:text="${q.explanation}">Giải thích</div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lịch sử làm bài -->
+    <div class="exam-card p-0 mb-4 overflow-hidden">
+        <div class="p-4 pb-2"><h6 class="fw-bold mb-0"><i class="bi bi-clock-history text-primary me-2"></i>Lịch sử làm bài</h6></div>
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead class="table-light small text-uppercase text-secondary">
+                <tr>
+                    <th class="ps-4">Bài làm</th>
+                    <th>Hình thức</th>
+                    <th>Mức độ</th>
+                    <th>Kết quả</th>
+                    <th>Thời gian</th>
+                    <th class="pe-4 text-end"></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:if="${#lists.isEmpty(attempts)}">
+                    <td colspan="6" class="text-center text-muted py-4">Chưa có bài làm nào.</td>
+                </tr>
+                <tr th:each="a : ${attempts}">
+                    <td class="ps-4">
+                        <div class="fw-semibold" th:text="${a.title}">Tiêu đề</div>
+                        <small class="text-muted"><span th:text="${a.documentTitle}"></span> · <span th:text="${a.formattedStartedAt}"></span></small>
+                    </td>
+                    <td><span class="badge" th:classappend="${a.examMode} ? 'bg-primary-subtle text-primary' : 'bg-secondary-subtle text-secondary'"
+                              th:text="${a.examMode} ? 'Thi thử' : 'Luyện nhanh'">Thi thử</span></td>
+                    <td th:text="${a.difficultyLabel}">TB</td>
+                    <td>
+                        <span th:if="${a.submitted}" class="score-chip"
+                              th:classappend="${a.score >= 8} ? 'good' : (${a.score >= 5} ? 'ok' : 'bad')"
+                              th:text="${a.formattedScore}">8.0</span>
+                        <small th:if="${a.submitted}" class="text-muted ms-1" th:text="${a.correctCount + '/' + a.totalQuestions}">8/10</small>
+                        <span th:unless="${a.submitted}" class="badge bg-warning-subtle text-warning-emphasis border">Đang làm</span>
+                    </td>
+                    <td class="small text-muted" th:text="${a.examMode} ? ${a.formattedTimeSpent} : '--'">--</td>
+                    <td class="pe-4 text-end">
+                        <a th:href="${a.submitted} ? @{/exam/{id}/result(id=${a.id})} : @{/exam/{id}(id=${a.id})}"
+                           class="btn btn-sm btn-outline-primary rounded-pill px-3"
+                           th:text="${a.submitted} ? 'Xem lại' : 'Làm tiếp'">Xem lại</a>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script th:src="@{/js/csrf.js}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script th:inline="javascript">
+    const trendLabels = /*[[${stats.trendLabels}]]*/ [];
+    const trendScores = /*[[${stats.trendScores}]]*/ [];
+    const canvas = document.getElementById('trendChart');
+    if (canvas && window.Chart && trendScores.length > 0) {
+        new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: trendLabels,
+                datasets: [{
+                    label: 'Điểm',
+                    data: trendScores,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 4,
+                    pointBackgroundColor: trendScores.map(s => s >= 8 ? '#16a34a' : (s >= 5 ? '#d97706' : '#dc2626'))
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { min: 0, max: 10, ticks: { stepSize: 2 }, grid: { color: '#eef2f7' } },
+                    x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true } }
+                }
+            }
+        });
+    }
+</script>
+</body>
+</html>

@@ -31,6 +31,17 @@
                     <span class="badge bg-primary text-white ms-auto" style="font-size: 0.65rem;">AI</span>
                 </a>
 
+                <a th:href="@{/exam}" class="nav-link-custom" th:classappend="${activeTab == 'exam'} ? ' active' : ''">
+                    <i class="bi bi-stopwatch"></i>
+                    <span>Phòng thi thử</span>
+                    <span class="badge bg-danger text-white ms-auto" style="font-size: 0.65rem;">MỚI</span>
+                </a>
+
+                <a th:href="@{/exam/history}" class="nav-link-custom" th:classappend="${activeTab == 'exam-history'} ? ' active' : ''">
+                    <i class="bi bi-graph-up-arrow"></i>
+                    <span>Kết quả &amp; thống kê</span>
+                </a>
+
                 <a th:href="@{/shared-documents}" class="nav-link-custom" th:classappend="${activeTab == 'shared-docs'} ? ' active' : ''">
                     <i class="bi bi-share"></i>
                     <span>Tài liệu chia sẻ</span>
@@ -51,10 +62,12 @@
                     <span>Trang giới thiệu</span>
                 </a>
 
-                <a th:href="@{/logout}" class="nav-link-custom text-danger mt-2" title="Đăng xuất khỏi hệ thống">
-                    <i class="bi bi-box-arrow-right"></i>
-                    <span>Đăng xuất</span>
-                </a>
+                <form th:action="@{/logout}" method="post" class="m-0">
+                    <button type="submit" class="nav-link-custom text-danger mt-2 w-100 border-0 bg-transparent text-start" title="Đăng xuất khỏi hệ thống">
+                        <i class="bi bi-box-arrow-right"></i>
+                        <span>Đăng xuất</span>
+                    </button>
+                </form>
             </div>
         </div>
 

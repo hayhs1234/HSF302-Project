@@ -92,6 +92,14 @@ public class Bm25Retriever {
     }
 
     /**
+     * Tách câu hỏi thành các khái niệm tìm kiếm: cụm thuật ngữ trong TermGlossary được nhận diện trước
+     * (kèm từ đồng nghĩa Việt/Anh/viết tắt), các từ còn lại sau khi lọc từ dừng thành khái niệm đơn.
+     */
+    public static List<List<String>> extractQueryConcepts(String query) {
+        return TermGlossary.toConcepts(normalizeAscii(query), STOPWORDS_ASCII);
+    }
+
+    /**
      * Kiểm tra xem câu hỏi có phải là yêu cầu tổng quát trên tài liệu đang mở
      * (ví dụ: "Tóm tắt tài liệu này", "Nội dung chính là gì") không có từ khóa chuyên biệt hay không.
      */
@@ -119,7 +127,9 @@ public class Bm25Retriever {
         }
 
         List<String> queryTokens = extractQueryTokens(query);
-        if (queryTokens.isEmpty()) {
+        // Khái niệm = nhóm cách viết tương đương (VD: "co so du lieu" | "database" | "csdl")
+        List<List<String>> concepts = extractQueryConcepts(query);
+        if (concepts.isEmpty()) {
             return Collections.emptyList();
         }
 
@@ -135,18 +145,17 @@ public class Bm25Retriever {
 
         double avgDocLength = nDocs > 0 ? Math.max(totalLength / nDocs, 1.0) : 100.0;
 
-        // Tính Document Frequency (DF) và IDF cho từng từ khóa trong câu hỏi
-        Map<String, Double> idfMap = new HashMap<>();
-        for (String term : queryTokens) {
+        // Tính Document Frequency (DF) và IDF cho từng khái niệm trong câu hỏi
+        double[] idfs = new double[concepts.size()];
+        for (int c = 0; c < concepts.size(); c++) {
             int df = 0;
             for (ChunkTokenStats stats : statsList) {
-                if (stats.getWeightedFrequency(term) > 0) {
+                if (stats.getConceptFrequency(concepts.get(c)) > 0) {
                     df++;
                 }
             }
             // Công thức Okapi BM25 IDF dương (Lucene BM25)
-            double idf = Math.log(1.0 + (nDocs - df + 0.5) / (df + 0.5));
-            idfMap.put(term, idf);
+            idfs[c] = Math.log(1.0 + (nDocs - df + 0.5) / (df + 0.5));
         }
 
         String normalizedPhrase = String.join(" ", queryTokens);
@@ -156,11 +165,11 @@ public class Bm25Retriever {
             double bm25Score = 0.0;
             int matchedTerms = 0;
 
-            for (String term : queryTokens) {
-                double tf = stats.getWeightedFrequency(term);
+            for (int c = 0; c < concepts.size(); c++) {
+                double tf = stats.getConceptFrequency(concepts.get(c));
                 if (tf > 0) {
                     matchedTerms++;
-                    double idf = idfMap.getOrDefault(term, 0.5);
+                    double idf = idfs[c];
                     double normLength = 1.0 - B + B * (stats.docLength / avgDocLength);
                     double termScore = idf * ((tf * (K1 + 1.0)) / (tf + K1 * normLength));
                     bm25Score += termScore;
@@ -182,7 +191,7 @@ public class Bm25Retriever {
             }
 
             // Thưởng tỷ lệ bao phủ từ khóa câu hỏi (Query Coverage)
-            double coverageRatio = (double) matchedTerms / queryTokens.size();
+            double coverageRatio = (double) matchedTerms / concepts.size();
             bm25Score *= (0.7 + 0.3 * coverageRatio);
 
             if (bm25Score >= MIN_RELEVANCE_SCORE) {
@@ -197,6 +206,19 @@ public class Bm25Retriever {
         });
 
         return results.stream().limit(topK).collect(Collectors.toList());
+    }
+
+    private static int countPhrase(String text, String phrase) {
+        if (text.isEmpty()) return 0;
+        String haystack = " " + text + " ";
+        String needle = " " + phrase + " ";
+        int count = 0;
+        int idx = haystack.indexOf(needle);
+        while (idx >= 0) {
+            count++;
+            idx = haystack.indexOf(needle, idx + needle.length() - 1);
+        }
+        return count;
     }
 
     private static class ChunkTokenStats {
@@ -243,7 +265,20 @@ public class Bm25Retriever {
             this.docLength = Math.max(count, 10);
         }
 
+        /** Tần suất của một khái niệm = tổng tần suất mọi cách viết tương đương */
+        double getConceptFrequency(List<String> alternatives) {
+            double total = 0;
+            for (String alt : alternatives) {
+                total += getWeightedFrequency(alt);
+            }
+            return total;
+        }
+
         double getWeightedFrequency(String term) {
+            if (term.contains(" ")) {
+                // Cụm nhiều chữ: đếm số lần xuất hiện nguyên cụm (đúng ranh giới từ)
+                return countPhrase(normalizedBody, term) + countPhrase(normalizedTitleAndMeta, term) * 2.5;
+            }
             int bodyCount = bodyTermFreq.getOrDefault(term, 0);
             int metaCount = titleMetaTermFreq.getOrDefault(term, 0);
             // Trọng số tiêu đề/môn học/thẻ cao hơn để giúp tìm đúng tài liệu theo chủ đề

@@ -17,7 +17,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class GroqChatService implements AiChatService {
@@ -55,13 +59,13 @@ public class GroqChatService implements AiChatService {
         }
 
         ArrayNode messages = buildGroqMessages(historyTurns, userMessage, systemPrompt);
-        String jsonBody = buildRequestBody(model, messages);
+        String jsonBody = buildRequestBody(model, messages, false);
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(GROQ_API_URL))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
-                .timeout(Duration.ofSeconds(30))
+                .timeout(Duration.ofSeconds(90))
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                 .build();
 
@@ -69,8 +73,8 @@ public class GroqChatService implements AiChatService {
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (java.net.http.HttpTimeoutException e) {
-            log.error("Groq API Timeout cho model {}: {}", model, e.getMessage());
-            throw new RuntimeException("Không thể nhận phản hồi từ Groq do quá thời gian chờ. Vui lòng thử lại.");
+            log.warn("Groq quá thời gian chờ cho model {}: {}", model, e.getMessage());
+            throw new AiOverloadedException("Groq phản hồi quá chậm (quá thời gian chờ). Vui lòng thử lại sau ít phút.", 504);
         } catch (Exception e) {
             log.error("Lỗi mạng khi gọi Groq API: {}", e.getMessage());
             throw new RuntimeException("Không thể kết nối tới dịch vụ Groq. Vui lòng kiểm tra kết nối mạng và thử lại.");
@@ -79,6 +83,9 @@ public class GroqChatService implements AiChatService {
         if (response.statusCode() != 200) {
             log.error("Groq API Error [{}]: {}", response.statusCode(), response.body());
             String errorMessage = parseFriendlyErrorMessage(response.body(), response.statusCode());
+            if (AiOverloadedException.isRetryableStatus(response.statusCode())) {
+                throw new AiOverloadedException(errorMessage, response.statusCode());
+            }
             throw new RuntimeException(errorMessage);
         }
 
@@ -88,6 +95,89 @@ public class GroqChatService implements AiChatService {
         }
 
         throw new RuntimeException("Groq không trả về nội dung hợp lệ.");
+    }
+
+    @Override
+    public String streamResponse(List<ChatTurnDto> historyTurns, String userMessage, String systemPrompt,
+                                 AiSessionConfig config, Consumer<String> onDelta) throws Exception {
+        String apiKey = config.getGroqApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalArgumentException("Dịch vụ Groq chưa được cấu hình khóa kết nối trên hệ thống. Vui lòng liên hệ quản trị viên.");
+        }
+        String model = config.getGroqModel();
+        if (model == null || model.isBlank()) {
+            model = "qwen/qwen3.8-27b";
+        }
+
+        String jsonBody = buildRequestBody(model, buildGroqMessages(historyTurns, userMessage, systemPrompt), true);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(GROQ_API_URL))
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream")
+                .header("Authorization", "Bearer " + apiKey)
+                .timeout(Duration.ofSeconds(90))
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                .build();
+
+        HttpResponse<Stream<String>> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+        } catch (java.net.http.HttpTimeoutException e) {
+            log.warn("Groq quá thời gian chờ cho model {}: {}", model, e.getMessage());
+            throw new AiOverloadedException("Groq phản hồi quá chậm (quá thời gian chờ). Vui lòng thử lại sau ít phút.", 504);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Yêu cầu tới Groq đã bị hủy.");
+        } catch (Exception e) {
+            log.error("Lỗi mạng khi streaming Groq API: {}", e.getMessage());
+            throw new RuntimeException("Không thể kết nối tới dịch vụ Groq. Vui lòng kiểm tra kết nối mạng và thử lại.");
+        }
+
+        if (response.statusCode() != 200) {
+            String errorBody;
+            try (Stream<String> body = response.body()) {
+                errorBody = body.collect(Collectors.joining("\n"));
+            }
+            log.error("Groq streaming API Error [{}]: {}", response.statusCode(), errorBody);
+            String errorMessage = parseFriendlyErrorMessage(errorBody, response.statusCode());
+            if (AiOverloadedException.isRetryableStatus(response.statusCode())) {
+                throw new AiOverloadedException(errorMessage, response.statusCode());
+            }
+            throw new RuntimeException(errorMessage);
+        }
+
+        StringBuilder full = new StringBuilder();
+        try (Stream<String> body = response.body()) {
+            Iterator<String> it = body.iterator();
+            while (it.hasNext()) {
+                String line = it.next();
+                if (!line.startsWith("data:")) continue;
+                String data = line.substring(5).trim();
+                if (data.isEmpty()) continue;
+                if ("[DONE]".equals(data)) break;
+                String piece = extractDeltaContent(data);
+                if (piece != null && !piece.isEmpty()) {
+                    full.append(piece);
+                    onDelta.accept(piece);
+                }
+            }
+        }
+
+        if (full.isEmpty()) {
+            throw new RuntimeException("Groq không trả về nội dung hợp lệ.");
+        }
+        return full.toString();
+    }
+
+    private String extractDeltaContent(String eventJson) {
+        try {
+            JsonNode delta = objectMapper.readTree(eventJson).path("choices").path(0).path("delta");
+            JsonNode content = delta.get("content");
+            return (content != null && !content.isNull()) ? content.asText() : null;
+        } catch (Exception e) {
+            log.warn("Không đọc được sự kiện streaming từ Groq: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Override
@@ -127,13 +217,16 @@ public class GroqChatService implements AiChatService {
         return messages;
     }
 
-    private String buildRequestBody(String model, ArrayNode messages) {
+    private String buildRequestBody(String model, ArrayNode messages, boolean stream) {
         try {
             ObjectNode root = objectMapper.createObjectNode();
             root.put("model", model);
             root.set("messages", messages);
             root.put("temperature", 0.5);
             root.put("max_tokens", 2500);
+            if (stream) {
+                root.put("stream", true);
+            }
             return objectMapper.writeValueAsString(root);
         } catch (Exception e) {
             throw new RuntimeException("Lỗi tạo dữ liệu yêu cầu Groq: " + e.getMessage(), e);

@@ -322,6 +322,72 @@
         .source-card.expanded .source-snippet {
             -webkit-line-clamp: unset;
         }
+        .page-badge {
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #4f46e5;
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 999px;
+            padding: 0.05rem 0.5rem;
+        }
+
+        /* Streaming: con trỏ nhấp nháy ở cuối đoạn đang được AI viết */
+        .ai-text-content.streaming > *:last-child::after,
+        .ai-text-content.streaming:empty::after {
+            content: '';
+            display: inline-block;
+            width: 0.5em;
+            height: 1em;
+            margin-left: 2px;
+            vertical-align: -0.15em;
+            background: #4f46e5;
+            animation: streamCaret 0.9s steps(1) infinite;
+        }
+        @keyframes streamCaret {
+            50% { opacity: 0; }
+        }
+
+        /* Đánh giá câu trả lời 👍 / 👎 */
+        .feedback-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-top: 0.6rem;
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+        .feedback-btn {
+            border: 1px solid transparent;
+            background: transparent;
+            color: #94a3b8;
+            border-radius: 999px;
+            padding: 0.1rem 0.45rem;
+            line-height: 1.4;
+            transition: all 0.15s ease;
+        }
+        .feedback-btn:hover {
+            background: #f1f5f9;
+            color: #475569;
+        }
+        .feedback-btn.active-up {
+            color: #16a34a;
+            background: #dcfce7;
+            border-color: #86efac;
+        }
+        .feedback-btn.active-down {
+            color: #dc2626;
+            background: #fee2e2;
+            border-color: #fca5a5;
+        }
+
+        .source-viewer-frame {
+            width: 100%;
+            height: 75vh;
+            border: 0;
+            border-radius: 0 0 1rem 1rem;
+            background: #f1f5f9;
+        }
 
         .chat-input-area {
             padding: 0.85rem 1.25rem;
@@ -725,6 +791,31 @@
         </div>
     </div>
 
+    <!-- Source Viewer Modal: mở đúng trang/slide của đoạn trích [n] -->
+    <div class="modal fade" id="sourceViewerModal" tabindex="-1" aria-labelledby="sourceViewerTitle" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content rounded-4 border-0 shadow">
+                <div class="modal-header border-bottom py-2 px-3">
+                    <div class="d-flex align-items-center gap-2 flex-fill" style="min-width: 0;">
+                        <span id="sourceViewerCitation" class="citation-ref">[1]</span>
+                        <h6 class="modal-title fw-bold text-truncate mb-0" id="sourceViewerTitle">Tài liệu</h6>
+                        <span id="sourceViewerPage" class="page-badge">Trang 1</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 ms-2">
+                        <a id="sourceViewerNewTab" href="#" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary rounded-pill px-3">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Tab mới
+                        </a>
+                        <a id="sourceViewerDownload" href="#" class="btn btn-sm btn-outline-primary rounded-pill px-3">
+                            <i class="bi bi-download me-1"></i>Tải file
+                        </a>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                    </div>
+                </div>
+                <div id="sourceViewerBody" class="p-0"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Interactive RAG Quiz Modal -->
     <div class="modal fade" id="aiQuizModal" tabindex="-1" aria-labelledby="aiQuizModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
@@ -783,6 +874,9 @@
                     <div id="quizSetupAlert" class="alert d-none small py-2 mb-0"></div>
                 </div>
                 <div id="quizSetupFooter" class="modal-footer border-top bg-light rounded-bottom-4">
+                    <a href="/exam" id="quizGoExamLink" class="btn btn-outline-danger rounded-pill px-3 me-auto" title="Làm bài có đồng hồ đếm ngược, chấm điểm và lưu lịch sử">
+                        <i class="bi bi-stopwatch me-1"></i> Vào phòng thi thử
+                    </a>
                     <button type="button" class="btn btn-secondary rounded-pill px-3" data-bs-dismiss="modal">Đóng</button>
                     <button type="button" id="startQuizBtn" class="btn btn-primary rounded-pill px-4 shadow-sm" onclick="startQuizGeneration()">
                         <i class="bi bi-play-circle-fill me-1"></i> Bắt đầu tạo bài Quiz
@@ -1005,6 +1099,7 @@
 
     <!-- Bootstrap 5 JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script th:src="@{/js/csrf.js}"></script>
     <!-- Marked.js, DOMPurify & KaTeX for Markdown and Math Rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
@@ -1242,7 +1337,7 @@
                     }
 
                     data.messages.forEach(msg => {
-                        if (msg.role === 'USER') {
+                        if ((msg.role || '').toLowerCase() === 'user') {
                             appendUserMessage(msg.content);
                         } else {
                             appendAiResponse({
@@ -1250,9 +1345,11 @@
                                 reply: msg.content,
                                 provider: msg.provider || 'StudyHub AI',
                                 mode: msg.mode || data.mode,
-                                documentTitle: msg.mode === 'RAG' ? 'Kho học liệu' : null,
+                                documentTitle: msg.mode === 'RAG' ? (msg.documentTitle || 'Kho học liệu') : null,
                                 timestamp: msg.timestamp,
-                                sources: msg.sources || []
+                                sources: msg.sources || [],
+                                assistantMessageId: msg.id,
+                                feedback: msg.feedback
                             });
                         }
                     });
@@ -1409,56 +1506,183 @@
             stopBtn.classList.add('d-flex');
 
             activeAbortController = new AbortController();
+            const payload = {
+                message: message,
+                mode: mode,
+                documentId: docId,
+                conversationId: activeConversationId
+            };
 
-            fetch('/api/ai/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                signal: activeAbortController.signal,
-                body: JSON.stringify({
-                    message: message,
-                    mode: mode,
-                    documentId: docId,
-                    conversationId: activeConversationId
-                })
-            })
-            .then(res => {
-                if (res.status === 401) {
-                    window.location.href = '/login';
-                    throw new Error('Phiên đăng nhập đã hết hạn');
-                }
-                return res.json();
-            })
-            .then(data => {
-                removeTypingIndicator(typingId);
-                resetInputButtons();
-
-                if (data.conversationId) {
-                    activeConversationId = data.conversationId;
-                    upsertConversationInSidebar(data.conversationId, data.conversationTitle, mode);
-                    const url = new URL(window.location);
-                    url.searchParams.set('convId', data.conversationId);
-                    window.history.replaceState({}, '', url);
-                }
-
-                appendAiResponse(data);
-            })
-            .catch(err => {
-                removeTypingIndicator(typingId);
-                resetInputButtons();
-                if (err.name === 'AbortError') {
-                    appendAiResponse({
+            streamChatResponse(payload, typingId, activeAbortController.signal)
+                .catch(err => {
+                    removeTypingIndicator(typingId);
+                    const partial = activeStreamBubble;
+                    activeStreamBubble = null;
+                    if (err.name === 'AbortError') {
+                        finishStreamingBubble(partial, {
+                            success: false,
+                            reply: 'Đã hủy yêu cầu phản hồi theo thao tác của bạn.',
+                            provider: 'Hệ thống'
+                        });
+                        return;
+                    }
+                    finishStreamingBubble(partial, {
                         success: false,
-                        reply: 'Đã hủy yêu cầu phản hồi theo thao tác của bạn.',
+                        reply: 'Lỗi mạng hoặc không thể kết nối tới máy chủ: ' + err.message,
                         provider: 'Hệ thống'
                     });
-                    return;
+                })
+                .finally(() => resetInputButtons());
+        }
+
+        /* ===================================================================
+           Streaming chat (Server-Sent Events qua fetch): chữ hiện dần như ChatGPT
+           =================================================================== */
+        let activeStreamBubble = null;
+
+        async function streamChatResponse(payload, typingId, signal) {
+            const res = await fetch('/api/ai/chat/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+                signal: signal,
+                body: JSON.stringify(payload)
+            });
+            if (res.status === 401) {
+                window.location.href = '/login';
+                throw new Error('Phiên đăng nhập đã hết hạn');
+            }
+            if (!res.ok || !res.body) {
+                throw new Error('Máy chủ trả về mã lỗi ' + res.status);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let gotDone = false;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                // Mỗi sự kiện SSE kết thúc bằng một dòng trống
+                let sepIndex;
+                while ((sepIndex = buffer.search(/\r?\n\r?\n/)) !== -1) {
+                    const rawEvent = buffer.slice(0, sepIndex);
+                    buffer = buffer.slice(sepIndex).replace(/^\r?\n\r?\n/, '');
+                    const evt = parseSseEvent(rawEvent);
+                    if (!evt) continue;
+                    if (evt.name === 'meta') {
+                        removeTypingIndicator(typingId);
+                        activeStreamBubble = createStreamingBubble(evt.data);
+                    } else if (evt.name === 'delta') {
+                        removeTypingIndicator(typingId);
+                        if (!activeStreamBubble) activeStreamBubble = createStreamingBubble({ mode: payload.mode });
+                        activeStreamBubble.text += evt.data.text || '';
+                        scheduleStreamRender(activeStreamBubble);
+                    } else if (evt.name === 'done') {
+                        gotDone = true;
+                        removeTypingIndicator(typingId);
+                        const data = evt.data;
+                        if (data.conversationId) {
+                            activeConversationId = data.conversationId;
+                            upsertConversationInSidebar(data.conversationId, data.conversationTitle, payload.mode);
+                            const url = new URL(window.location);
+                            url.searchParams.set('convId', data.conversationId);
+                            window.history.replaceState({}, '', url);
+                        }
+                        finishStreamingBubble(activeStreamBubble, data);
+                        activeStreamBubble = null;
+                    }
                 }
-                appendAiResponse({
+            }
+
+            if (!gotDone) {
+                removeTypingIndicator(typingId);
+                const partial = activeStreamBubble;
+                activeStreamBubble = null;
+                finishStreamingBubble(partial, {
                     success: false,
-                    reply: 'Lỗi mạng hoặc không thể kết nối tới máy chủ: ' + err.message,
+                    reply: 'Kết nối bị gián đoạn trước khi AI trả lời xong. Vui lòng thử lại.',
                     provider: 'Hệ thống'
                 });
+            }
+        }
+
+        function parseSseEvent(raw) {
+            let name = 'message';
+            const dataLines = [];
+            raw.split(/\r?\n/).forEach(line => {
+                if (line.startsWith('event:')) name = line.slice(6).trim();
+                else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
             });
+            if (dataLines.length === 0) return null;
+            try {
+                return { name: name, data: JSON.parse(dataLines.join('\n')) };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function createStreamingBubble(meta) {
+            const container = document.getElementById('chatMessages');
+            const row = document.createElement('div');
+            row.className = 'message-row ai';
+            const isRag = meta && meta.mode === 'RAG';
+            const modeBadge = isRag
+                ? `<span class="badge bg-primary-subtle text-primary border me-1"><i class="bi bi-file-earmark-text me-1"></i>${escapeHtml(meta.documentTitle || 'Tra cứu tài liệu')}</span>`
+                : `<span class="badge bg-light text-secondary border me-1"><i class="bi bi-chat-text me-1"></i>Trò chuyện</span>`;
+            const sourceCount = (meta && meta.sources) ? meta.sources.length : 0;
+            row.innerHTML = `
+                <div class="avatar-bubble avatar-ai shadow-sm">
+                    <i class="bi bi-stars"></i>
+                </div>
+                <div class="message-bubble shadow-sm">
+                    <div class="d-flex align-items-center justify-content-between mb-2 gap-3">
+                        <div class="d-flex align-items-center flex-wrap gap-1">
+                            ${modeBadge}
+                            <span class="badge bg-light text-secondary border small">${escapeHtml((meta && meta.provider) || 'AI')}</span>
+                        </div>
+                        <small class="text-muted" style="font-size: 0.72rem;">
+                            <span class="spinner-grow spinner-grow-sm text-primary me-1" style="width: 0.5rem; height: 0.5rem;"></span>Đang viết...
+                        </small>
+                    </div>
+                    <div class="ai-text-content streaming"></div>
+                    ${sourceCount > 0 ? `<div class="small text-muted mt-2"><i class="bi bi-journal-bookmark me-1"></i>Đang dựa trên ${sourceCount} đoạn trích tài liệu...</div>` : ''}
+                </div>
+            `;
+            container.appendChild(row);
+            container.scrollTop = container.scrollHeight;
+            return { row: row, contentEl: row.querySelector('.ai-text-content'), text: '', pending: false, meta: meta };
+        }
+
+        function scheduleStreamRender(bubble) {
+            if (bubble.pending) return;
+            bubble.pending = true;
+            // Gom các mảnh nhận được trong ~40ms rồi vẽ lại một lần (setTimeout vẫn chạy khi tab bị ẩn, khác requestAnimationFrame)
+            setTimeout(() => {
+                bubble.pending = false;
+                const container = document.getElementById('chatMessages');
+                const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+                bubble.contentEl.innerHTML = renderMarkdownWithCitations(bubble.text, 'streaming', 'streaming');
+                if (nearBottom) container.scrollTop = container.scrollHeight;
+            }, 40);
+        }
+
+        /** Thay bong bóng đang streaming bằng câu trả lời hoàn chỉnh (nguồn trích dẫn, nút đánh giá...) */
+        function finishStreamingBubble(bubble, data) {
+            if (bubble && !data.success && bubble.text) {
+                // Giữ phần chữ AI đã viết được, kèm thông báo lỗi bên dưới
+                data = Object.assign({}, data, { reply: bubble.text + '\n\n> ⚠️ ' + data.reply, success: true, mode: (bubble.meta && bubble.meta.mode) || 'GENERAL' });
+            }
+            const finalRow = buildAiResponseRow(data);
+            const container = document.getElementById('chatMessages');
+            if (bubble && bubble.row && bubble.row.parentNode) {
+                bubble.row.replaceWith(finalRow);
+            } else {
+                container.appendChild(finalRow);
+                container.scrollTop = container.scrollHeight;
+            }
         }
 
         function resetInputButtons() {
@@ -1514,8 +1738,16 @@
             if (el) el.remove();
         }
 
+        // Nguồn trích dẫn của từng tin nhắn (để bấm [n] mở đúng trang tài liệu)
+        const messageSources = {};
+
         function appendAiResponse(data) {
             const container = document.getElementById('chatMessages');
+            container.appendChild(buildAiResponseRow(data));
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function buildAiResponseRow(data) {
             const row = document.createElement('div');
             row.className = 'message-row ai';
             const msgUniqueId = 'msg_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
@@ -1535,10 +1767,9 @@
                         </div>
                     </div>
                 `;
-                container.appendChild(row);
-                container.scrollTop = container.scrollHeight;
-                return;
+                return row;
             }
+            messageSources[msgUniqueId] = data.sources || [];
 
             let modeBadge = '';
             if (data.mode === 'RAG') {
@@ -1564,13 +1795,20 @@
                                     <span>${escapeHtml(s.documentTitle)}</span>
                                     ${extBadge}
                                     ${subjBadge}
-                                    <small class="text-muted fw-normal ms-1">(Đoạn #${(s.chunkIndex || 0) + 1})</small>
+                                    ${s.pageNumber
+                                        ? `<span class="page-badge ms-1">${pageLabel(s)}</span>`
+                                        : `<small class="text-muted fw-normal ms-1">(Đoạn #${s.chunkIndex || 1})</small>`}
                                 </div>
                                 <div class="d-flex align-items-center gap-1">
                                     <button type="button" class="btn btn-sm btn-link text-decoration-none p-0 px-1 small"
                                             onclick="document.getElementById('${cardId}').classList.toggle('expanded')" title="Mở rộng đoạn trích">
                                         <i class="bi bi-arrows-expand"></i>
                                     </button>
+                                    ${canOpenPage(s) ? `
+                                    <button type="button" class="btn btn-sm btn-primary py-0 px-2 rounded-pill" style="font-size: 0.73rem;"
+                                            onclick="openSourceViewer('${msgUniqueId}', ${citNum})" title="Mở tài liệu gốc tại vị trí trích dẫn">
+                                        <i class="bi bi-box-arrow-in-up-right me-1"></i>Mở ${pageLabel(s).toLowerCase()}
+                                    </button>` : ''}
                                     <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 rounded-pill" style="font-size: 0.73rem;"
                                             onclick="openDocumentPreview(${s.documentId})">
                                         <i class="bi bi-info-circle me-1"></i>Chi tiết
@@ -1626,10 +1864,114 @@
                         ${renderMarkdownWithCitations(data.reply, msgUniqueId, collapseId)}
                     </div>
                     ${sourcesHtml}
+                    ${data.assistantMessageId ? buildFeedbackBar(data.assistantMessageId, data.feedback) : ''}
                 </div>
             `;
-            container.appendChild(row);
-            container.scrollTop = container.scrollHeight;
+            return row;
+        }
+
+        function pageLabel(source) {
+            const ext = (source.fileExtension || '').toLowerCase();
+            return (ext === 'pptx' ? 'Slide ' : 'Trang ') + source.pageNumber;
+        }
+
+        function canOpenPage(source) {
+            return !!(source && source.documentId && source.pageNumber);
+        }
+
+        /* ===================================================================
+           Đánh giá câu trả lời 👍 / 👎 (lưu DB để đo chất lượng RAG)
+           =================================================================== */
+        function buildFeedbackBar(messageId, current) {
+            return `
+                <div class="feedback-bar" data-message-id="${messageId}">
+                    <span>Câu trả lời này có hữu ích?</span>
+                    <button type="button" class="feedback-btn ${current === 1 ? 'active-up' : ''}" title="Hữu ích"
+                            onclick="sendFeedback(this, ${messageId}, 1)"><i class="bi bi-hand-thumbs-up${current === 1 ? '-fill' : ''}"></i></button>
+                    <button type="button" class="feedback-btn ${current === -1 ? 'active-down' : ''}" title="Chưa tốt"
+                            onclick="sendFeedback(this, ${messageId}, -1)"><i class="bi bi-hand-thumbs-down${current === -1 ? '-fill' : ''}"></i></button>
+                    <span class="feedback-status"></span>
+                </div>
+            `;
+        }
+
+        function sendFeedback(btn, messageId, value) {
+            const bar = btn.closest('.feedback-bar');
+            const upBtn = bar.querySelectorAll('.feedback-btn')[0];
+            const downBtn = bar.querySelectorAll('.feedback-btn')[1];
+            const alreadyActive = btn.classList.contains(value === 1 ? 'active-up' : 'active-down');
+            const newValue = alreadyActive ? 0 : value;
+
+            fetch('/api/ai/messages/' + messageId + '/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: newValue })
+            })
+                .then(r => r.json())
+                .then(d => {
+                    if (!d.success) return;
+                    upBtn.classList.toggle('active-up', newValue === 1);
+                    downBtn.classList.toggle('active-down', newValue === -1);
+                    upBtn.querySelector('i').className = 'bi bi-hand-thumbs-up' + (newValue === 1 ? '-fill' : '');
+                    downBtn.querySelector('i').className = 'bi bi-hand-thumbs-down' + (newValue === -1 ? '-fill' : '');
+                    bar.querySelector('.feedback-status').textContent = newValue === 0 ? '' : 'Cảm ơn bạn đã đánh giá!';
+                })
+                .catch(() => {
+                    bar.querySelector('.feedback-status').textContent = 'Không gửi được đánh giá.';
+                });
+        }
+
+        /* ===================================================================
+           Mở tài liệu gốc đúng trang/slide của trích dẫn [n]
+           =================================================================== */
+        function openSourceViewer(msgUniqueId, citNum) {
+            const sources = messageSources[msgUniqueId] || [];
+            const s = sources.find(x => (x.citationNumber || 0) === citNum) || sources[citNum - 1];
+            if (!s || !s.documentId) return;
+
+            const ext = (s.fileExtension || '').toLowerCase();
+            const body = document.getElementById('sourceViewerBody');
+            document.getElementById('sourceViewerCitation').textContent = '[' + citNum + ']';
+            document.getElementById('sourceViewerTitle').textContent = s.documentTitle || 'Tài liệu';
+            document.getElementById('sourceViewerPage').textContent = s.pageNumber ? pageLabel(s) : 'Đoạn trích';
+            document.getElementById('sourceViewerDownload').href = '/documents/download/' + s.documentId;
+
+            const newTab = document.getElementById('sourceViewerNewTab');
+            const modalEl = document.getElementById('sourceViewerModal');
+            if (ext === 'pdf') {
+                const url = '/documents/view/' + s.documentId + '#page=' + (s.pageNumber || 1) + '&view=FitH';
+                newTab.href = url;
+                newTab.classList.remove('d-none');
+                body.innerHTML = `<div class="source-viewer-frame d-flex align-items-center justify-content-center text-muted">
+                    <span class="spinner-border spinner-border-sm me-2"></span>Đang mở ${escapeHtml(pageLabel(s).toLowerCase())}...</div>`;
+                // Nạp PDF sau khi modal hiển thị xong: trình xem PDF cần kích thước thật để nhảy đúng trang
+                const loadPdf = () => {
+                    body.innerHTML = `<iframe class="source-viewer-frame" src="${url}" title="Xem tài liệu"></iframe>`;
+                };
+                if (modalEl.classList.contains('show')) {
+                    loadPdf();
+                } else {
+                    modalEl.addEventListener('shown.bs.modal', loadPdf, { once: true });
+                }
+            } else {
+                // PPTX / DOCX không xem trực tiếp được trên trình duyệt: hiển thị vị trí và đoạn trích
+                newTab.classList.add('d-none');
+                body.innerHTML = `
+                    <div class="p-4">
+                        <div class="d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-file-earmark-slides fs-3 text-primary"></i>
+                            <div>
+                                <div class="fw-semibold">${escapeHtml(s.documentTitle || '')}</div>
+                                <small class="text-muted">${s.pageNumber ? 'Nội dung nằm ở <b>' + pageLabel(s) + '</b> trong tệp ' + escapeHtml((s.fileExtension || '').toUpperCase()) : 'Đoạn trích từ tài liệu'}</small>
+                            </div>
+                        </div>
+                        <div class="source-card expanded" style="font-size: 0.9rem;">
+                            <div class="source-snippet">${escapeHtml(s.snippet || '')}</div>
+                        </div>
+                        <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle me-1"></i>Tải file về để xem đầy đủ ${s.pageNumber ? pageLabel(s).toLowerCase() : 'nội dung'}.</p>
+                    </div>`;
+            }
+            bootstrap.Modal.getOrCreateInstance(modalEl).show();
         }
 
         function copyAiReply(btn) {
@@ -1651,6 +1993,12 @@
                 card.classList.add('expanded', 'highlight-flash');
                 card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 setTimeout(() => card.classList.remove('highlight-flash'), 1800);
+            }
+            // Nếu biết đoạn trích nằm ở trang/slide nào thì mở luôn tài liệu gốc tại vị trí đó
+            const sources = messageSources[msgUniqueId] || [];
+            const s = sources.find(x => (x.citationNumber || 0) === citNum) || sources[citNum - 1];
+            if (canOpenPage(s)) {
+                openSourceViewer(msgUniqueId, citNum);
             }
         }
 
@@ -1782,6 +2130,9 @@
         }
 
         function renderMarkdownWithCitations(text, msgUniqueId, collapseId) {
+            if (!text) return '';
+            // Ẩn phần suy luận nội bộ <think>...</think> của một số mô hình (kể cả khi đang streaming dở)
+            text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trimStart();
             if (!text) return '';
 
             // 1. Tách các biểu thức toán học LaTeX ($$...$$ và $...$) trước khi Marked.js xử lý
@@ -2082,6 +2433,16 @@
             modal.show();
         }
 
+        // Đồng bộ link "Vào phòng thi thử" theo tài liệu đang chọn trong form Quiz
+        document.addEventListener('DOMContentLoaded', function () {
+            const docSelect = document.getElementById('quizDocSelect');
+            const link = document.getElementById('quizGoExamLink');
+            if (!docSelect || !link) return;
+            const sync = () => { link.href = docSelect.value ? '/exam?docId=' + docSelect.value : '/exam'; };
+            docSelect.addEventListener('change', sync);
+            document.getElementById('aiQuizModal').addEventListener('show.bs.modal', sync);
+        });
+
         function showQuizSetupScreen() {
             document.getElementById('quizViewSetup').classList.remove('d-none');
             document.getElementById('quizSetupFooter').classList.remove('d-none');
@@ -2288,7 +2649,47 @@
                         </div>
                     </div>
                 `;
-            }).join('');
+            }).join('') + `<div id="quizSaveStatus" class="small text-muted text-center mt-1"></div>`;
+
+            savePracticeResult();
+        }
+
+        /** Lưu kết quả Quiz luyện nhanh vào lịch sử làm bài (trang Kết quả & thống kê) */
+        function savePracticeResult() {
+            if (!currentQuizData) return;
+            const statusEl = document.getElementById('quizSaveStatus');
+            const difficulty = document.getElementById('quizDifficultySelect').value;
+            const topic = document.getElementById('quizTopicInput').value.trim();
+            fetch('/api/quiz/practice-results', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    documentId: currentQuizData.documentId,
+                    documentTitle: currentQuizData.documentTitle,
+                    quizTitle: currentQuizData.quizTitle,
+                    topic: topic,
+                    difficulty: difficulty,
+                    provider: currentQuizData.provider,
+                    model: currentQuizData.model,
+                    questions: currentQuizData.questions.map((q, idx) => ({
+                        question: q.question,
+                        options: q.options,
+                        correctIndex: q.correctIndex,
+                        selectedIndex: quizUserAnswers[idx],
+                        explanation: q.explanation,
+                        sourceReference: q.sourceReference
+                    }))
+                })
+            })
+                .then(r => r.json())
+                .then(d => {
+                    if (statusEl && d.success) {
+                        statusEl.innerHTML = '<i class="bi bi-cloud-check text-success me-1"></i>Đã lưu vào lịch sử. <a href="/exam/history">Xem thống kê học tập</a>';
+                    }
+                })
+                .catch(() => {
+                    if (statusEl) statusEl.textContent = 'Không lưu được kết quả vào lịch sử.';
+                });
         }
 
         function retakeCurrentQuiz() {

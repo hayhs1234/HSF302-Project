@@ -18,6 +18,7 @@ public class ChatResponseDto {
     private List<SourceChunkDto> sources = new ArrayList<>();
     private String errorMessage;
     private String timestamp;
+    private Long assistantMessageId;
 
     public ChatResponseDto() {
         this.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
@@ -136,5 +137,13 @@ public class ChatResponseDto {
 
     public void setTimestamp(String timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public Long getAssistantMessageId() {
+        return assistantMessageId;
+    }
+
+    public void setAssistantMessageId(Long assistantMessageId) {
+        this.assistantMessageId = assistantMessageId;
     }
 }

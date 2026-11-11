@@ -3,7 +3,17 @@ package com.studyhub.controller;
 import com.studyhub.dto.DocumentFormDto;
 import com.studyhub.model.Document;
 import com.studyhub.model.Subject;
+import com.studyhub.config.SecurityConfig;
 import com.studyhub.model.User;
+import com.studyhub.service.StudyHubUserDetailsService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.SecurityContextRepository;
 import com.studyhub.service.DocumentService;
 import com.studyhub.service.SubjectService;
 import com.studyhub.service.UserService;
@@ -24,11 +34,14 @@ public class HomeController {
     private final DocumentService documentService;
     private final SubjectService subjectService;
     private final UserService userService;
+    private final SecurityContextRepository securityContextRepository;
 
-    public HomeController(DocumentService documentService, SubjectService subjectService, UserService userService) {
+    public HomeController(DocumentService documentService, SubjectService subjectService, UserService userService,
+                          SecurityContextRepository securityContextRepository) {
         this.documentService = documentService;
         this.subjectService = subjectService;
         this.userService = userService;
+        this.securityContextRepository = securityContextRepository;
     }
 
     @GetMapping("/")
@@ -126,30 +139,6 @@ public class HomeController {
         return "redirect:/?loginRequired=true";
     }
 
-    @PostMapping("/login")
-    public String login(
-            @RequestParam(required = false) String email,
-            @RequestParam(required = false) String password,
-            HttpSession session,
-            RedirectAttributes redirectAttributes) {
-
-        if (email == null || email.trim().isEmpty() || password == null || password.isEmpty()) {
-            redirectAttributes.addFlashAttribute("loginErrorMessage", "Vui lòng nhập đầy đủ Email và Mật khẩu!");
-            return "redirect:/?loginError=true";
-        }
-
-        Optional<User> userOpt = userService.authenticate(email, password);
-        if (userOpt.isPresent()) {
-            User user = userOpt.get();
-            session.setAttribute("currentUser", user);
-            redirectAttributes.addFlashAttribute("successMessage", "Đăng nhập thành công! Chào mừng " + user.getFullName() + " đến với StudyHub.");
-            return "redirect:/dashboard";
-        } else {
-            redirectAttributes.addFlashAttribute("loginErrorMessage", "Email hoặc mật khẩu không chính xác! Vui lòng thử lại.");
-            return "redirect:/?loginError=true";
-        }
-    }
-
     @GetMapping("/register")
     public String showRegisterPage(HttpSession session) {
         if (session != null && session.getAttribute("currentUser") != null) {
@@ -163,12 +152,14 @@ public class HomeController {
             @RequestParam(required = false) String fullName,
             @RequestParam(required = false) String email,
             @RequestParam(required = false) String password,
-            HttpSession session,
+            HttpServletRequest request,
+            HttpServletResponse response,
             RedirectAttributes redirectAttributes) {
 
         try {
             User user = userService.register(fullName, email, password);
-            session.setAttribute("currentUser", user);
+            signIn(user, request, response);
+            request.getSession().setAttribute(SecurityConfig.SESSION_USER, user);
             redirectAttributes.addFlashAttribute("successMessage", "Đăng ký tài khoản thành công! Chào mừng " + user.getFullName() + " đến với StudyHub.");
             return "redirect:/dashboard";
         } catch (IllegalArgumentException ex) {
@@ -177,12 +168,19 @@ public class HomeController {
         }
     }
 
-    @GetMapping("/logout")
-    public String logout(HttpSession session, RedirectAttributes redirectAttributes) {
-        if (session != null) {
-            session.invalidate();
-        }
-        redirectAttributes.addFlashAttribute("logoutMessage", "Bạn đã đăng xuất tài khoản thành công khỏi StudyHub.");
-        return "redirect:/?logoutSuccess=true";
+    /**
+     * Đăng nhập ngay tài khoản vừa đăng ký: tạo SecurityContext và lưu vào session (Spring Security).
+     * Đổi session id để chống tấn công cố định phiên (session fixation).
+     */
+    private void signIn(User user, HttpServletRequest request, HttpServletResponse response) {
+        request.getSession(true);
+        request.changeSessionId();
+        Authentication auth = UsernamePasswordAuthenticationToken.authenticated(
+                user.getEmail(), null,
+                List.of(new SimpleGrantedAuthority("ROLE_" + StudyHubUserDetailsService.roleOf(user))));
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(auth);
+        SecurityContextHolder.setContext(context);
+        securityContextRepository.saveContext(context, request, response);
     }
 }

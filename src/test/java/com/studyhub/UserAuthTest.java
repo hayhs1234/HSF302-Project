@@ -3,7 +3,8 @@ package com.studyhub;
 import com.studyhub.model.User;
 import com.studyhub.repository.UserRepository;
 import com.studyhub.service.UserService;
-import com.studyhub.util.PasswordUtil;
+import com.studyhub.config.PasswordConfig;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,11 +21,12 @@ public class UserAuthTest {
 
     private UserRepository userRepository;
     private UserService userService;
+    private final PasswordEncoder passwordEncoder = PasswordConfig.createPasswordEncoder();
 
     @BeforeEach
     void setUp() {
         userRepository = mock(UserRepository.class);
-        userService = new UserService(userRepository);
+        userService = new UserService(userRepository, passwordEncoder);
     }
 
     @Test
@@ -41,7 +43,9 @@ public class UserAuthTest {
         assertNotNull(user);
         assertEquals("Nguyễn Văn An", user.getFullName());
         assertEquals("student@gmail.com", user.getEmail());
-        assertTrue(PasswordUtil.matches("123456", user.getPassword()));
+        assertTrue(user.getPassword().startsWith("{bcrypt}"), "Mật khẩu mới phải được băm bằng BCrypt");
+        assertTrue(passwordEncoder.matches("123456", user.getPassword()));
+        assertEquals("LOCAL", user.getAuthProvider());
         verify(userRepository, times(1)).save(any(User.class));
     }
 
@@ -83,28 +87,4 @@ public class UserAuthTest {
         );
         assertTrue(ex.getMessage().contains("6 ký tự"));
     }
-
-    @Test
-    @DisplayName("Xác thực đăng nhập đúng email và mật khẩu")
-    void testAuthenticateSuccess() {
-        String hashedPassword = PasswordUtil.hash("123456");
-        User mockUser = new User("Nguyễn Văn An", "student@gmail.com", hashedPassword);
-        when(userRepository.findByEmailIgnoreCase("student@gmail.com")).thenReturn(Optional.of(mockUser));
-
-        Optional<User> result = userService.authenticate("student@gmail.com", "123456");
-        assertTrue(result.isPresent());
-        assertEquals("Nguyễn Văn An", result.get().getFullName());
-    }
-
-    @Test
-    @DisplayName("Xác thực đăng nhập thất bại khi sai mật khẩu")
-    void testAuthenticateWrongPassword() {
-        String hashedPassword = PasswordUtil.hash("123456");
-        User mockUser = new User("Nguyễn Văn An", "student@gmail.com", hashedPassword);
-        when(userRepository.findByEmailIgnoreCase("student@gmail.com")).thenReturn(Optional.of(mockUser));
-
-        Optional<User> result = userService.authenticate("student@gmail.com", "sai_mat_khau");
-        assertFalse(result.isPresent());
-    }
 }
-

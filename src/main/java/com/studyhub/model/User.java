@@ -33,10 +33,48 @@ public class User {
     @Column(length = 50)
     private String role = "STUDENT";
 
+    /** LOCAL = đăng ký bằng email/mật khẩu, GOOGLE = tạo từ lần đăng nhập Google đầu tiên */
+    @Column(name = "auth_provider", length = 20)
+    private String authProvider = "LOCAL";
+
+    /**
+     * Mã định danh tài khoản Google (claim "sub"). Không đặt UNIQUE ở DB vì SQL Server chỉ cho phép một NULL
+     * trong cột UNIQUE; tính duy nhất được đảm bảo khi liên kết trong GoogleOidcUserService.
+     */
+    @Column(name = "google_sub", length = 64)
+    private String googleSub;
+
+    @Column(name = "avatar_url", length = 500)
+    private String avatarUrl;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
     public User() {
+    }
+
+    public String getAuthProvider() {
+        return authProvider;
+    }
+
+    public void setAuthProvider(String authProvider) {
+        this.authProvider = authProvider;
+    }
+
+    public String getGoogleSub() {
+        return googleSub;
+    }
+
+    public void setGoogleSub(String googleSub) {
+        this.googleSub = googleSub;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 
     public User(String fullName, String email, String password) {

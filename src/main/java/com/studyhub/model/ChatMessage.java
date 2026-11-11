@@ -47,6 +47,13 @@ public class ChatMessage {
     @Column(name = "sources_json", columnDefinition = "NVARCHAR(MAX)")
     private String sourcesJson;
 
+    /** Đánh giá của người dùng cho câu trả lời AI: 1 = hữu ích, -1 = chưa tốt, null = chưa đánh giá. */
+    @Column(name = "feedback")
+    private Integer feedback;
+
+    @Column(name = "feedback_at")
+    private LocalDateTime feedbackAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -138,6 +145,22 @@ public class ChatMessage {
 
     public void setSourcesJson(String sourcesJson) {
         this.sourcesJson = sourcesJson;
+    }
+
+    public Integer getFeedback() {
+        return feedback;
+    }
+
+    public void setFeedback(Integer feedback) {
+        this.feedback = feedback;
+    }
+
+    public LocalDateTime getFeedbackAt() {
+        return feedbackAt;
+    }
+
+    public void setFeedbackAt(LocalDateTime feedbackAt) {
+        this.feedbackAt = feedbackAt;
     }
 
     public LocalDateTime getCreatedAt() {

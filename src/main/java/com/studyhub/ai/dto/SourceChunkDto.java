@@ -9,6 +9,7 @@ public class SourceChunkDto {
     private int chunkIndex;
     private String snippet;
     private double relevanceScore;
+    private Integer pageNumber;
 
     public SourceChunkDto() {
     }
@@ -91,5 +92,13 @@ public class SourceChunkDto {
 
     public void setRelevanceScore(double relevanceScore) {
         this.relevanceScore = relevanceScore;
+    }
+
+    public Integer getPageNumber() {
+        return pageNumber;
+    }
+
+    public void setPageNumber(Integer pageNumber) {
+        this.pageNumber = pageNumber;
     }
 }

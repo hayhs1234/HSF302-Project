@@ -18,13 +18,28 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class GeminiChatService implements AiChatService {
 
     private static final Logger log = LoggerFactory.getLogger(GeminiChatService.class);
-    private static final String GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s";
+    private static final String DEFAULT_API_BASE = "https://generativelanguage.googleapis.com";
+    private static final String GENERATE_PATH = "/v1beta/models/%s:generateContent?key=%s";
+    private static final String STREAM_PATH = "/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s";
+    private static final String FALLBACK_MODEL = "gemini-3.5-flash-lite";
+    private static final int MAX_ATTEMPTS_PER_MODEL = 2;
+    /** Soạn đề 10 câu kèm giải thích có thể mất khá lâu, nên chờ lâu hơn chat thường */
+    private static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 90;
+
+    /** Có thể đổi trong kiểm thử để trỏ tới máy chủ giả lập */
+    private String apiBase = DEFAULT_API_BASE;
+    private Duration requestTimeout = Duration.ofSeconds(DEFAULT_REQUEST_TIMEOUT_SECONDS);
+    private long backoffMillis = 1200L;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -36,6 +51,13 @@ public class GeminiChatService implements AiChatService {
                 .connectTimeout(Duration.ofSeconds(12))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    /** Chỉ dùng cho kiểm thử: trỏ tới máy chủ giả lập và rút ngắn thời gian chờ */
+    public void configureForTesting(String apiBase, Duration requestTimeout, long backoffMillis) {
+        this.apiBase = apiBase;
+        this.requestTimeout = requestTimeout;
+        this.backoffMillis = backoffMillis;
     }
 
     @Override
@@ -52,6 +74,91 @@ public class GeminiChatService implements AiChatService {
 
         String model = config.getGeminiModel();
 
+        String jsonBody = buildRequestJson(historyTurns, userMessage, systemPrompt);
+        // Thử model đã chọn trước, rồi tới model dự phòng; mỗi model thử lại khi Google báo quá tải
+        int lastStatus = 0;
+        String lastBody = null;
+        candidates:
+        for (String candidate : candidateModels(model)) {
+            for (int attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(String.format(apiBase + GENERATE_PATH, candidate, apiKey)))
+                        .header("Content-Type", "application/json; charset=UTF-8")
+                        .timeout(requestTimeout)
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                        .build();
+
+                HttpResponse<String> response;
+                try {
+                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                } catch (java.net.http.HttpTimeoutException te) {
+                    // Model phản hồi quá chậm (thường do quá tải): không thử lại cùng model, chuyển ngay sang model kế tiếp
+                    log.warn("Gemini model '{}' quá thời gian chờ {}s, chuyển sang phương án dự phòng", candidate, requestTimeout.getSeconds());
+                    lastStatus = 504;
+                    continue candidates;
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Yêu cầu tới Google Gemini đã bị hủy.");
+                } catch (Exception e) {
+                    log.error("Lỗi mạng khi gọi Gemini API (model {}): {}", candidate, e.getMessage());
+                    throw new RuntimeException("Không thể kết nối tới dịch vụ Google Gemini. Vui lòng kiểm tra kết nối mạng và thử lại.");
+                }
+
+                int status = response.statusCode();
+                if (status == 200) {
+                    String extracted = extractReplyText(response.body());
+                    if (extracted != null && !extracted.isBlank()) {
+                        if (!candidate.equals(model)) {
+                            log.info("Gemini: đã trả lời bằng model dự phòng {} thay cho {}", candidate, model);
+                        }
+                        return extracted;
+                    }
+                    throw new RuntimeException("Google Gemini không trả về nội dung phản hồi hợp lệ.");
+                }
+
+                lastStatus = status;
+                lastBody = response.body();
+                if (!AiOverloadedException.isRetryableStatus(status)) {
+                    log.error("Gemini API Error [{}] on model {}: {}", status, candidate, lastBody);
+                    throw new RuntimeException(parseFriendlyErrorMessage(lastBody, status));
+                }
+                log.warn("Gemini model '{}' quá tải (mã {}), lần thử {}/{}", candidate, status, attempt, MAX_ATTEMPTS_PER_MODEL);
+                if (attempt < MAX_ATTEMPTS_PER_MODEL) {
+                    sleepBackoff(attempt);
+                }
+            }
+        }
+
+        log.error("Gemini quá tải trên mọi model đã thử. Mã cuối {}: {}", lastStatus, lastBody);
+        throw new AiOverloadedException(overloadMessage(lastStatus), lastStatus);
+    }
+
+    /** Model người dùng chọn, sau đó là model dự phòng (nếu khác) */
+    private List<String> candidateModels(String model) {
+        return FALLBACK_MODEL.equals(model) ? List.of(model) : List.of(model, FALLBACK_MODEL);
+    }
+
+    private void sleepBackoff(int attempt) {
+        try {
+            Thread.sleep(backoffMillis * attempt);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private String overloadMessage(int status) {
+        if (status == 504) {
+            return "Google Gemini phản hồi quá chậm (quá thời gian chờ) trên mọi mô hình đã thử. Vui lòng thử lại sau ít phút.";
+        }
+        return status == 429
+                ? "Khóa API Google Gemini đang chạm giới hạn số lượt gọi miễn phí. Hệ thống đã tự thử lại nhưng chưa được, vui lòng đợi khoảng 30 giây rồi thử lại."
+                : "Máy chủ Google Gemini đang quá tải (kể cả mô hình dự phòng). Hệ thống đã tự thử lại nhiều lần nhưng chưa được, vui lòng thử lại sau ít phút hoặc chuyển sang Groq.";
+    }
+
+    /**
+     * Dựng JSON yêu cầu gửi Gemini (system instruction + lịch sử hội thoại + câu hỏi hiện tại).
+     */
+    private String buildRequestJson(List<ChatTurnDto> historyTurns, String userMessage, String systemPrompt) throws Exception {
         ObjectNode rootNode = objectMapper.createObjectNode();
 
         if (systemPrompt != null && !systemPrompt.isBlank()) {
@@ -97,59 +204,109 @@ public class GeminiChatService implements AiChatService {
         genConfig.put("temperature", 0.6);
         genConfig.put("maxOutputTokens", 4096);
 
-        String jsonBody = objectMapper.writeValueAsString(rootNode);
-        String requestUrl = String.format(GEMINI_API_URL, model, apiKey);
 
+        return objectMapper.writeValueAsString(rootNode);
+    }
+
+    @Override
+    public String streamResponse(List<ChatTurnDto> historyTurns, String userMessage, String systemPrompt,
+                                 AiSessionConfig config, Consumer<String> onDelta) throws Exception {
+        String apiKey = config.getGeminiApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalArgumentException("Dịch vụ Google Gemini chưa được cấu hình khóa kết nối trên hệ thống. Vui lòng liên hệ quản trị viên.");
+        }
+
+        String model = config.getGeminiModel();
+        String jsonBody = buildRequestJson(historyTurns, userMessage, systemPrompt);
+
+        // Lỗi quá tải được báo ngay ở mã trạng thái, trước khi có chữ nào được gửi -> thử lại / đổi model an toàn
+        HttpResponse<Stream<String>> response = null;
+        int status = 0;
+        outer:
+        for (String candidate : candidateModels(model)) {
+            for (int attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+                response = openStream(candidate, apiKey, jsonBody);
+                status = response.statusCode();
+                if (status == 200) break outer;
+
+                String errorBody;
+                try (Stream<String> body = response.body()) {
+                    errorBody = body.collect(Collectors.joining("\n"));
+                }
+                if (!AiOverloadedException.isRetryableStatus(status)) {
+                    log.error("Gemini streaming API Error [{}] on model {}: {}", status, candidate, errorBody);
+                    throw new RuntimeException(parseFriendlyErrorMessage(errorBody, status));
+                }
+                log.warn("Gemini streaming model '{}' quá tải (mã {}), lần thử {}/{}", candidate, status, attempt, MAX_ATTEMPTS_PER_MODEL);
+                if (attempt < MAX_ATTEMPTS_PER_MODEL) sleepBackoff(attempt);
+            }
+        }
+        if (status != 200) {
+            throw new AiOverloadedException(overloadMessage(status), status);
+        }
+
+        StringBuilder full = new StringBuilder();
+        try (Stream<String> body = response.body()) {
+            Iterator<String> it = body.iterator();
+            while (it.hasNext()) {
+                String line = it.next();
+                if (!line.startsWith("data:")) continue;
+                String data = line.substring(5).trim();
+                if (data.isEmpty()) continue;
+                String piece = extractStreamPiece(data);
+                if (piece != null && !piece.isEmpty()) {
+                    full.append(piece);
+                    onDelta.accept(piece);
+                }
+            }
+        }
+
+        if (full.isEmpty()) {
+            throw new RuntimeException("Google Gemini không trả về nội dung phản hồi hợp lệ.");
+        }
+        return full.toString();
+    }
+
+    private HttpResponse<Stream<String>> openStream(String model, String apiKey, String jsonBody) {
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(requestUrl))
+                .uri(URI.create(String.format(apiBase + STREAM_PATH, model, apiKey)))
                 .header("Content-Type", "application/json; charset=UTF-8")
+                .header("Accept", "text/event-stream")
                 .timeout(Duration.ofSeconds(35))
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                 .build();
-
-        HttpResponse<String> response;
         try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
         } catch (java.net.http.HttpTimeoutException te) {
-            log.error("Gemini API Timeout cho model {}: {}", model, te.getMessage());
-            throw new RuntimeException("Không thể nhận phản hồi từ Google Gemini do quá thời gian chờ. Vui lòng thử lại.");
+            // Chưa có chữ nào gửi tới người dùng -> báo quá tải để chuyển sang nhà cung cấp dự phòng
+            log.warn("Gemini streaming quá thời gian chờ cho model {}: {}", model, te.getMessage());
+            throw new AiOverloadedException(overloadMessage(504), 504);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Yêu cầu tới Google Gemini đã bị hủy.");
         } catch (Exception e) {
-            log.error("Lỗi mạng khi gọi Gemini API (model {}): {}", model, e.getMessage());
+            log.error("Lỗi mạng khi streaming Gemini API (model {}): {}", model, e.getMessage());
             throw new RuntimeException("Không thể kết nối tới dịch vụ Google Gemini. Vui lòng kiểm tra kết nối mạng và thử lại.");
         }
+    }
 
-        int status = response.statusCode();
-        if (status == 200) {
-            String extracted = extractReplyText(response.body());
-            if (extracted != null && !extracted.isBlank()) {
-                return extracted;
+    /**
+     * Lấy phần văn bản của một sự kiện SSE (bỏ qua các phần "thought" nội bộ của mô hình).
+     */
+    private String extractStreamPiece(String eventJson) {
+        try {
+            JsonNode parts = objectMapper.readTree(eventJson).path("candidates").path(0).path("content").path("parts");
+            if (!parts.isArray()) return null;
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode part : parts) {
+                if (part.path("thought").asBoolean(false)) continue;
+                if (part.has("text")) sb.append(part.get("text").asText());
             }
-            throw new RuntimeException("Google Gemini không trả về nội dung phản hồi hợp lệ.");
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("Không đọc được sự kiện streaming từ Gemini: {}", e.getMessage());
+            return null;
         }
-
-        if ((status == 503 || status == 429) && !"gemini-3.5-flash-lite".equals(model)) {
-            log.warn("Gemini model '{}' gặp mã lỗi {} (quá tải hoặc hết hạn mức Pro), tự động chuyển sang gemini-3.5-flash-lite...", model, status);
-            String fallbackUrl = String.format(GEMINI_API_URL, "gemini-3.5-flash-lite", apiKey);
-            HttpRequest fbReq = HttpRequest.newBuilder()
-                    .uri(URI.create(fallbackUrl))
-                    .header("Content-Type", "application/json; charset=UTF-8")
-                    .timeout(Duration.ofSeconds(20))
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
-                    .build();
-            try {
-                HttpResponse<String> fbResp = httpClient.send(fbReq, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-                if (fbResp.statusCode() == 200) {
-                    String extracted = extractReplyText(fbResp.body());
-                    if (extracted != null && !extracted.isBlank()) {
-                        return extracted;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        }
-
-        log.error("Gemini API Error [{}] on model {}: {}", status, model, response.body());
-        throw new RuntimeException(parseFriendlyErrorMessage(response.body(), status));
     }
 
     private String extractReplyText(String responseBody) throws Exception {
@@ -204,7 +361,7 @@ public class GeminiChatService implements AiChatService {
             return "Khóa API Google Gemini đang tạm chạm giới hạn số lượt gọi miễn phí trong phút. Vui lòng đợi khoảng 15-30 giây rồi thử lại.";
         }
         if (statusCode == 503) {
-            return "Máy chủ mô hình này hiện đang quá tải tạm thời (High demand từ Google). Bạn có thể chọn mô hình 'Gemini 3.5 Flash-Lite' để tiếp tục trò chuyện ngay lập tức.";
+            return "Máy chủ Google Gemini đang quá tải tạm thời. Vui lòng thử lại sau ít phút hoặc chuyển sang Groq.";
         }
         if (statusCode >= 500) {
             return "Máy chủ Google Gemini hiện đang quá tải tạm thời. Vui lòng thử lại sau vài giây.";
