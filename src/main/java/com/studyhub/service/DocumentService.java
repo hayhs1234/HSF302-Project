@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -102,9 +104,7 @@ public class DocumentService {
         doc.setCreatedAt(LocalDateTime.now());
         doc.setUpdatedAt(LocalDateTime.now());
         Document saved = documentRepository.save(doc);
-        if (documentIndexingService != null) {
-            documentIndexingService.indexDocument(saved);
-        }
+        scheduleIndexingAfterCommit(saved);
         return saved;
     }
 
@@ -118,9 +118,7 @@ public class DocumentService {
         updateDocumentFields(doc, dto);
         doc.setUpdatedAt(LocalDateTime.now());
         Document saved = documentRepository.save(doc);
-        if (documentIndexingService != null) {
-            documentIndexingService.indexDocument(saved);
-        }
+        scheduleIndexingAfterCommit(saved);
         return saved;
     }
 
@@ -130,10 +128,11 @@ public class DocumentService {
         }
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài liệu với ID: " + documentId));
+        verifyDocumentOwner(doc, user, "Bạn chỉ có thể chia sẻ tài liệu do chính mình tạo ra!");
 
         doc.setIsShared(true);
         doc.setSharedAt(LocalDateTime.now());
-        doc.setSharedByName(user != null ? user.getFullName() : "Sinh viên");
+        doc.setSharedByName(user.getFullName());
         doc.setSharedNote((note != null && !note.trim().isEmpty()) ? note.trim() : null);
         return documentRepository.save(doc);
     }
@@ -144,11 +143,21 @@ public class DocumentService {
         }
         Document doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy tài liệu với ID: " + documentId));
+        verifyDocumentOwner(doc, user, "Bạn chỉ có thể hủy chia sẻ tài liệu do chính mình tạo ra!");
 
         doc.setIsShared(false);
         doc.setSharedAt(null);
         doc.setSharedNote(null);
         return documentRepository.save(doc);
+    }
+
+    private void verifyDocumentOwner(Document doc, User user, String forbiddenMessage) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException("Vui lòng đăng nhập để thực hiện thao tác này");
+        }
+        if (doc.getUser() == null || !user.getId().equals(doc.getUser().getId())) {
+            throw new IllegalArgumentException(forbiddenMessage);
+        }
     }
 
     public Document pullDocumentToPersonal(Long sharedDocumentId, User targetUser) {
@@ -199,10 +208,29 @@ public class DocumentService {
         documentRepository.save(sharedDoc);
 
         Document savedCopy = documentRepository.save(copy);
-        if (documentIndexingService != null) {
-            documentIndexingService.indexDocument(savedCopy);
-        }
+        scheduleIndexingAfterCommit(savedCopy);
         return savedCopy;
+    }
+
+    /**
+     * Chỉ lập chỉ mục sau khi transaction lưu Document đã commit xong để tránh xung đột khóa
+     * giữa transaction hiện tại và transaction độc lập (REQUIRES_NEW) trong DocumentIndexingService.
+     */
+    private void scheduleIndexingAfterCommit(Document saved) {
+        if (documentIndexingService == null || saved == null) {
+            return;
+        }
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    documentIndexingService.indexDocument(saved);
+                }
+            });
+        } else {
+            documentIndexingService.indexDocument(saved);
+        }
     }
 
     public void validateDocumentDto(DocumentFormDto dto) {

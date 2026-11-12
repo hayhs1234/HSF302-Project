@@ -400,7 +400,7 @@
                     <a id="detailEditBtn" href="#" class="btn btn-outline-secondary rounded-pill flex-grow-1">
                         <i class="bi bi-pencil me-1"></i> Chỉnh sửa
                     </a>
-                    <form id="detailDeleteForm" action="#" method="post" class="flex-grow-1"
+                    <form id="detailDeleteForm" th:action="@{/documents/delete/0}" method="post" class="flex-grow-1"
                           onsubmit="return confirm('Bạn có chắc muốn xóa tài liệu này không?');">
                         <button type="submit" class="btn btn-outline-danger rounded-pill w-100">
                             <i class="bi bi-trash me-1"></i> Xóa

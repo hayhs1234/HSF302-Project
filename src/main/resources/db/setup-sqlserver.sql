@@ -127,12 +127,34 @@ BEGIN
         document_id BIGINT NOT NULL,
         chunk_index INT NOT NULL,
         content NVARCHAR(MAX) NOT NULL,
-        normalized_content NVARCHAR(MAX) NOT NULL,
         token_count INT DEFAULT 0,
+        page_number INT NULL,
         created_at DATETIME2 DEFAULT GETDATE(),
         CONSTRAINT FK_document_chunks_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
     );
     CREATE INDEX idx_doc_chunk_doc_id ON document_chunks(document_id);
+END
+GO
+
+-- Đồng bộ schema document_chunks nếu bảng đã tạo từ phiên bản cũ
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.document_chunks') AND name = 'page_number')
+BEGIN
+    ALTER TABLE dbo.document_chunks ADD page_number INT NULL;
+END
+GO
+
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('dbo.document_chunks') AND name = 'normalized_content')
+BEGIN
+    DECLARE @dropSql NVARCHAR(MAX) = N'';
+    SELECT @dropSql = @dropSql + N'ALTER TABLE dbo.document_chunks DROP CONSTRAINT ' + QUOTENAME(dc.name) + N'; '
+    FROM sys.default_constraints dc
+    JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id
+    WHERE dc.parent_object_id = OBJECT_ID('dbo.document_chunks') AND c.name = 'normalized_content';
+
+    IF LEN(@dropSql) > 0
+        EXEC sp_executesql @dropSql;
+
+    ALTER TABLE dbo.document_chunks DROP COLUMN normalized_content;
 END
 GO
 
