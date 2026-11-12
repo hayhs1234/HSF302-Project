@@ -8,7 +8,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -29,35 +32,33 @@ public class DocumentIndexingService {
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository documentChunkRepository;
     private final DocumentTextExtractor documentTextExtractor;
+    private final TransactionTemplate requiresNewTx;
 
     @Value("${studyhub.upload.dir:./uploads/}")
     private String uploadDir;
 
     public DocumentIndexingService(DocumentRepository documentRepository,
                                    DocumentChunkRepository documentChunkRepository,
-                                   DocumentTextExtractor documentTextExtractor) {
+                                   DocumentTextExtractor documentTextExtractor,
+                                   PlatformTransactionManager transactionManager) {
         this.documentRepository = documentRepository;
         this.documentChunkRepository = documentChunkRepository;
         this.documentTextExtractor = documentTextExtractor;
+        this.requiresNewTx = new TransactionTemplate(transactionManager);
+        this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     /**
      * Lập chỉ mục (Trích xuất văn bản -> Chia đoạn -> Lưu vào bảng document_chunks) cho 1 tài liệu
      */
-    @Transactional
     public int indexDocument(Document doc) {
         if (doc == null || doc.getId() == null) {
             return 0;
         }
 
         try {
-            documentChunkRepository.deleteByDocumentId(doc.getId());
-
             if (!documentTextExtractor.isSupportedExtension(doc.getFileExtension())) {
-                doc.setIndexStatus("NO_CONTENT");
-                doc.setIndexedAt(LocalDateTime.now());
-                documentRepository.save(doc);
-                return 0;
+                return saveNoContentStatus(doc);
             }
 
             // Trích xuất theo từng trang/slide để mỗi đoạn biết mình nằm ở trang nào (phục vụ trích dẫn mở đúng trang)
@@ -83,25 +84,47 @@ public class DocumentIndexingService {
             }
 
             if (entities.isEmpty()) {
-                doc.setIndexStatus("NO_CONTENT");
+                return saveNoContentStatus(doc);
+            }
+
+            Integer savedCount = requiresNewTx.execute(status -> {
+                documentChunkRepository.deleteByDocumentId(doc.getId());
+                documentChunkRepository.saveAll(entities);
+                doc.setIndexStatus("INDEXED");
                 doc.setIndexedAt(LocalDateTime.now());
                 documentRepository.save(doc);
-                return 0;
-            }
-            documentChunkRepository.saveAll(entities);
+                return entities.size();
+            });
 
-            doc.setIndexStatus("INDEXED");
-            doc.setIndexedAt(LocalDateTime.now());
-            documentRepository.save(doc);
-
-            log.info("Indexed document ID={} '{}' -> {} chunks", doc.getId(), doc.getTitle(), entities.size());
-            return entities.size();
+            int result = savedCount != null ? savedCount : 0;
+            log.info("Indexed document ID={} '{}' -> {} chunks", doc.getId(), doc.getTitle(), result);
+            return result;
         } catch (Exception e) {
             log.error("Lỗi lập chỉ mục tài liệu ID={} '{}': {}", doc.getId(), doc.getTitle(), e.getMessage(), e);
-            doc.setIndexStatus("FAILED");
+            markDocumentFailed(doc);
+            return 0;
+        }
+    }
+
+    private int saveNoContentStatus(Document doc) {
+        requiresNewTx.executeWithoutResult(status -> {
+            documentChunkRepository.deleteByDocumentId(doc.getId());
+            doc.setIndexStatus("NO_CONTENT");
             doc.setIndexedAt(LocalDateTime.now());
             documentRepository.save(doc);
-            return 0;
+        });
+        return 0;
+    }
+
+    private void markDocumentFailed(Document doc) {
+        try {
+            requiresNewTx.executeWithoutResult(status -> {
+                doc.setIndexStatus("FAILED");
+                doc.setIndexedAt(LocalDateTime.now());
+                documentRepository.save(doc);
+            });
+        } catch (Exception ex) {
+            log.warn("Không thể cập nhật trạng thái FAILED cho tài liệu ID={}: {}", doc.getId(), ex.getMessage());
         }
     }
 
@@ -119,7 +142,6 @@ public class DocumentIndexingService {
         return documentChunkRepository.countByDocumentId(documentId) > 0;
     }
 
-    @Transactional
     public int indexAllPendingDocuments() {
         List<Document> allDocs = documentRepository.findAll();
         int indexedDocs = 0;

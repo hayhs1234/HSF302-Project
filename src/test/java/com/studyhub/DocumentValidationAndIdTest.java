@@ -3,6 +3,7 @@ package com.studyhub;
 import com.studyhub.dto.DocumentFormDto;
 import com.studyhub.model.Document;
 import com.studyhub.model.Subject;
+import com.studyhub.model.User;
 import com.studyhub.repository.DocumentRepository;
 import com.studyhub.repository.SubjectRepository;
 import com.studyhub.service.DocumentService;
@@ -192,6 +193,73 @@ public class DocumentValidationAndIdTest {
         assertEquals("Giao trinh moi da sua", updated.getTitle());
         assertEquals("CTDL", updated.getSubject().getCode());
         assertEquals("https://example.com/slide.pdf", updated.getFileUrl());
+    }
+
+    @Test
+    @DisplayName("Không cho phép hủy chia sẻ tài liệu của người khác")
+    void testUnshareDocument_nonOwnerRejected() {
+        User owner = new User();
+        owner.setId(2L);
+        owner.setFullName("Trần Mai Anh");
+
+        User otherUser = new User();
+        otherUser.setId(1L);
+        otherUser.setFullName("Nguyễn Văn An");
+
+        Document sharedDoc = new Document();
+        sharedDoc.setId(20L);
+        sharedDoc.setTitle("De_thi_cua_Mai_Anh.docx");
+        sharedDoc.setUser(owner);
+        sharedDoc.setIsShared(true);
+
+        when(documentRepository.findById(20L)).thenReturn(Optional.of(sharedDoc));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                documentService.unshareDocument(20L, otherUser)
+        );
+        verify(documentRepository, never()).save(any(Document.class));
+        assertTrue(sharedDoc.getIsShared());
+    }
+
+    @Test
+    @DisplayName("Cho phép chủ sở hữu hủy chia sẻ tài liệu của chính mình")
+    void testUnshareDocument_ownerAllowed() {
+        User owner = new User();
+        owner.setId(1L);
+        owner.setFullName("Nguyễn Văn An");
+
+        Document sharedDoc = new Document();
+        sharedDoc.setId(21L);
+        sharedDoc.setTitle("Tai_lieu_cua_An.pdf");
+        sharedDoc.setUser(owner);
+        sharedDoc.setIsShared(true);
+
+        when(documentRepository.findById(21L)).thenReturn(Optional.of(sharedDoc));
+        when(documentRepository.save(any(Document.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Document result = documentService.unshareDocument(21L, owner);
+        assertFalse(result.getIsShared());
+        verify(documentRepository, times(1)).save(sharedDoc);
+    }
+
+    @Test
+    @DisplayName("Không cho phép chia sẻ tài liệu thuộc sở hữu của người khác")
+    void testShareDocument_nonOwnerRejected() {
+        User owner = new User();
+        owner.setId(2L);
+        User otherUser = new User();
+        otherUser.setId(1L);
+
+        Document doc = new Document();
+        doc.setId(22L);
+        doc.setUser(owner);
+
+        when(documentRepository.findById(22L)).thenReturn(Optional.of(doc));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                documentService.shareDocument(22L, otherUser, "Ghi chú")
+        );
+        verify(documentRepository, never()).save(any(Document.class));
     }
 }
 

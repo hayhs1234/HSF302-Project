@@ -7,6 +7,8 @@ import com.studyhub.model.User;
 import com.studyhub.repository.DocumentRepository;
 import com.studyhub.repository.SubjectRepository;
 import com.studyhub.service.UserService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,8 @@ import java.time.LocalDateTime;
 
 @Component
 public class DataInitializer implements CommandLineRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
 
     private final SubjectRepository subjectRepository;
     private final DocumentRepository documentRepository;
@@ -42,6 +46,7 @@ public class DataInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
         ensureAccentInsensitiveCollation();
+        ensureDocumentChunksSchema();
 
         // 1. Khởi tạo tài khoản mẫu (sinh viên có thể đăng nhập ngay hoặc đăng ký mới)
         User student = userService.getOrCreateDefaultUser("Nguyễn Văn An", "student@gmail.com", "123456");
@@ -217,6 +222,48 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
+    /**
+     * Xóa cột dư thừa normalized_content (từ schema cũ) khỏi bảng document_chunks nếu còn tồn tại
+     * và đặt lại trạng thái cho các tài liệu từng lỗi để hệ thống lập chỉ mục lại.
+     */
+    private void ensureDocumentChunksSchema() {
+        try {
+            Integer hasColumn = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM sys.columns WHERE object_id = COALESCE(OBJECT_ID('dbo.document_chunks'), OBJECT_ID('document_chunks')) AND name = 'normalized_content'",
+                    Integer.class
+            );
+            if (hasColumn == null || hasColumn == 0) {
+                return;
+            }
+
+            try {
+                jdbcTemplate.execute(
+                        "DECLARE @tblId INT = COALESCE(OBJECT_ID('dbo.document_chunks'), OBJECT_ID('document_chunks')); " +
+                        "DECLARE @sql NVARCHAR(MAX) = N''; " +
+                        "SELECT @sql = @sql + N'ALTER TABLE dbo.document_chunks DROP CONSTRAINT ' + QUOTENAME(dc.name) + N'; ' " +
+                        "FROM sys.default_constraints dc " +
+                        "JOIN sys.columns c ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id " +
+                        "WHERE dc.parent_object_id = @tblId AND c.name = 'normalized_content'; " +
+                        "SELECT @sql = @sql + N'ALTER TABLE dbo.document_chunks DROP CONSTRAINT ' + QUOTENAME(cc.name) + N'; ' " +
+                        "FROM sys.check_constraints cc " +
+                        "JOIN sys.columns c ON cc.parent_object_id = c.object_id AND cc.parent_column_id = c.column_id " +
+                        "WHERE cc.parent_object_id = @tblId AND c.name = 'normalized_content'; " +
+                        "IF LEN(@sql) > 0 EXEC sp_executesql @sql;"
+                );
+                jdbcTemplate.execute("ALTER TABLE dbo.document_chunks DROP COLUMN normalized_content");
+                log.info("Đã xóa cột dư thừa normalized_content khỏi bảng document_chunks.");
+            } catch (Exception dropEx) {
+                log.warn("Không thể xóa trực tiếp cột normalized_content ({}), thử gỡ ràng buộc NOT NULL...", dropEx.getMessage());
+                jdbcTemplate.execute("ALTER TABLE dbo.document_chunks ALTER COLUMN normalized_content NVARCHAR(MAX) NULL");
+                log.info("Đã chuyển cột normalized_content sang cho phép NULL.");
+            }
+
+            jdbcTemplate.execute("UPDATE dbo.documents SET index_status = 'PENDING' WHERE index_status = 'FAILED'");
+        } catch (Exception e) {
+            log.warn("Không thể tự động đồng bộ schema bảng document_chunks: {}", e.getMessage());
+        }
+    }
+
     private Subject getOrCreateSubject(String code, String name, String description, String color, String icon) {
         return subjectRepository.findByCode(code).orElseGet(() -> {
             Subject s = new Subject(code, name, description, color, icon);
@@ -256,6 +303,13 @@ public class DataInitializer implements CommandLineRunner {
                 boolean changed = false;
                 boolean needsReindex = false;
                 if (existing.getUser() == null && user != null) {
+                    existing.setUser(user);
+                    changed = true;
+                } else if (isShared && Boolean.TRUE.equals(existing.getIsShared())
+                        && user != null && user.getId() != null
+                        && sharedByName != null && sharedByName.equals(existing.getSharedByName())
+                        && existing.getUser() != null && !user.getId().equals(existing.getUser().getId())) {
+                    // Đồng bộ lại chủ sở hữu cho tài liệu mẫu nếu DB cũ từng gán nhầm sang tài khoản khác
                     existing.setUser(user);
                     changed = true;
                 }
